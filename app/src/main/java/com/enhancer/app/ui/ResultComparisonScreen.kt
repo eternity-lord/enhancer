@@ -27,7 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ZoomOutMap
 import androidx.compose.material3.AssistChip
@@ -288,6 +288,8 @@ fun ResultComparisonScreen(
                         // Full layer: AFTER (Enhanced)
                         drawImage(
                             image = afterImg,
+                            srcOffset = IntOffset.Zero,
+                            srcSize = IntSize(afterImg.width, afterImg.height),
                             dstOffset = dstOffset,
                             dstSize = dstSize,
                             filterQuality = FilterQuality.High
@@ -298,6 +300,8 @@ fun ResultComparisonScreen(
                         clipRect(left = 0f, top = 0f, right = splitX, bottom = ch) {
                             drawImage(
                                 image = beforeImg,
+                                srcOffset = IntOffset.Zero,
+                                srcSize = IntSize(beforeImg.width, beforeImg.height),
                                 dstOffset = dstOffset,
                                 dstSize = dstSize,
                                 filterQuality = FilterQuality.Low
@@ -411,7 +415,7 @@ fun ResultComparisonScreen(
                     modifier = Modifier.weight(1f)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.OpenInNew,
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
                         contentDescription = null,
                         modifier = Modifier.size(18.dp)
                     )
