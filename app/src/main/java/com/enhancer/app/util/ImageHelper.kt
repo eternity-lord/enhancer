@@ -179,8 +179,9 @@ object ImageHelper {
         val cleanBase = baseName.ifBlank { "image" }
         val targetSlug = target.fileSlug(model.scale)
         val extras = buildString {
-            if (settings?.maxQuality == true) append("_maxQ")
-            if (settings?.ttaX8 == true) append("_tta8")
+            if (settings?.safeMode == true) append("_safe")
+            if (settings?.effectiveMaxQuality == true) append("_maxQ")
+            if (settings?.effectiveTtaX8 == true) append("_tta8")
             if ((settings?.sharpness ?: 0) > 0) append("_s${settings?.sharpness}")
         }
         return "${cleanBase}_${targetSlug}_${model.fileSlug}${extras}.${format.extension}"

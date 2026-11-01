@@ -38,7 +38,8 @@ private:
     int fd_;
 };
 
-// Encodes packed RGB888 pixels to JPEG or PNG and streams into `fd` via a 64 KB buffered callback.
+// Stream-encodes packed RGB888 pixels to 4:4:4 JPEG or lossless PNG directly into `fd`
+// with ZERO second full-size image buffer (64 KB output ring + single-row PNG filter scratch).
 // Does NOT close `fd` (caller manages lifetime via UniqueFd).
 bool write_rgb_image_to_fd(
     int fd,
@@ -47,7 +48,9 @@ bool write_rgb_image_to_fd(
     int height,
     ImageFormat format,
     int jpeg_quality,
-    std::string* out_error
+    std::string* out_error,
+    EnhancerStatus* out_status = nullptr,
+    uint64_t* out_requested_bytes = nullptr
 );
 
 } // namespace enhancer

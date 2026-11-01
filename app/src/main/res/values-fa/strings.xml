@@ -67,6 +67,11 @@
     <string name="label_disable_fp16">غیرفعال‌سازی دقت fp16</string>
     <string name="disable_fp16_desc">در صورت مشاهده به‌هم‌ریختگی رنگ در برخی پردازنده‌ها فعال کنید (مصرف رم و زمان بیشتر)</string>
 
+    <string name="label_safe_mode">حالت ایمن (Safe Mode)</string>
+    <string name="safe_mode_desc">اجبار پردازش روی CPU + کاشی ۶۴ + بدون حداکثر کیفیت + بدون TTA برای بیشترین پایداری</string>
+    <string name="safe_mode_active_banner">حالت ایمن فعال است: اجرا روی CPU با کاشی ۶۴ پیکسلی، حداکثر کیفیت خاموش و TTA خاموش.</string>
+    <string name="badge_safe_mode">حالت ایمن</string>
+
     <!-- Queue controls & overall status -->
     <string name="queue_header">صف پردازش (%1$d)</string>
     <string name="overall_progress_label">مجموع: %1$d از %2$d انجام شده (%3$d%%)</string>
@@ -129,6 +134,7 @@
     <string name="btn_open_gallery">باز کردن در گالری</string>
     <string name="backend_ran_label">موتور اجرا: %1$s</string>
     <string name="fallback_notice">پردازش Vulkan در دسترس نبود یا حین اجرا خطا داد؛ تصویر به صورت خودکار با CPU تکمیل شد.</string>
+    <string name="fallback_chain_used">با جایگزینی خودکار تکمیل شد: %1$s</string>
     <string name="share_chooser_title">اشتراک‌گذاری تصویر ارتقایافته</string>
     <string name="error_no_gallery_app">برنامه گالری برای نمایش تصویر یافت نشد.</string>
     <string name="error_no_share_app">برنامه‌ای برای اشتراک‌گذاری تصویر یافت نشد.</string>
@@ -156,13 +162,46 @@
     <string name="notif_thermal_text">در انتظار کاهش دمای دستگاه برای ادامه صف</string>
     <string name="notif_action_cancel">لغو</string>
 
+    <!-- Diagnostics & Self-Test on About Screen -->
+    <string name="diag_section_title">عیب‌یابی و تست خودکار</string>
+    <string name="diag_hardware_label">وضعیت سخت‌افزار و Vulkan</string>
+    <string name="diag_ram_line">رم دستگاه: %1$d مگابایت آزاد از %2$d مگابایت</string>
+    <string name="diag_safe_mode_status">حالت ایمن: %1$s</string>
+    <string name="diag_state_on">فعال (CPU + کاشی ۶۴)</string>
+    <string name="diag_state_off">خاموش</string>
+    <string name="diag_self_test_desc" formatted="false">یک تصویر آزمایشی ۲۵۶×۲۵۶ را با مدل realesrgan-x4plus یک‌بار روی Vulkan و یک‌بار روی CPU (کاشی ۶۴، بدون حداکثر کیفیت و بدون TTA) اجرا می‌کند.</string>
+    <string name="btn_run_self_test">اجرای تست خودکار (Run self-test)</string>
+    <string name="self_test_running">در حال اجرای تست خودکار Vulkan و CPU…</string>
+    <string name="self_test_busy_queue">پیش از اجرای تست خودکار، تا پایان پردازش صف صبر کنید.</string>
+    <string name="self_test_vulkan_row">Vulkan • %1$s (%2$d میلی‌ثانیه)</string>
+    <string name="self_test_cpu_row">CPU • %1$s (%2$d میلی‌ثانیه)</string>
+    <string name="self_test_pass">PASS</string>
+    <string name="self_test_fail">FAIL</string>
+    <string name="diag_latest_native_title">آخرین پیام عیب‌یابی موتور بومی</string>
+    <string name="diag_no_message_yet">هنوز پردازش یا تست خودکاری ثبت نشده است.</string>
+
     <!-- Error messages -->
     <string name="err_decode_source">خواندن تصویر ورودی امکان‌پذیر نبود.</string>
     <string name="err_mediastore_create">ایجاد فایل خروجی در پوشه Pictures/Enhancer ممکن نشد.</string>
     <string name="err_oom">کمبود حافظه رم در پردازش بومی. وضوح 4K یا اندازه کاشی کوچک‌تر را امتحان کنید.</string>
+    <string name="err_oom_with_detail">کمبود واقعی حافظه در تخصیص بومی (%1$s).</string>
     <string name="err_asset_load">بارگذاری فایل‌های مدل Real-ESRGAN با خطا مواجه شد.</string>
+    <string name="err_asset_load_detail">خطا در دسترسی به فایل‌های مدل برنامه (%1$s).</string>
     <string name="err_bitmap_lock">قفل‌کردن پیکسل‌های تصویر ورودی ناموفق بود.</string>
+    <string name="err_bitmap_lock_detail">قفل‌کردن پیکسل‌های تصویر ورودی ناموفق بود (%1$s).</string>
+    <string name="err_vulkan_init">راه‌اندازی شتاب‌دهنده گرافیکی Vulkan ناموفق بود (%1$s).</string>
+    <string name="err_vk_allocator">تخصیص‌دهنده حافظه گرافیکی Vulkan ایجاد نشد (%1$s).</string>
+    <string name="err_ncnn_load_param">بارگذاری ساختار مدل ncnn load_param ناموفق بود (%1$s).</string>
+    <string name="err_ncnn_load_model">بارگذاری وزن‌های مدل ncnn load_model ناموفق بود (%1$s).</string>
+    <string name="err_ncnn_input">ارسال ورودی کاشی به ncnn input ناموفق بود (%1$s).</string>
+    <string name="err_ncnn_extract">استخراج خروجی کاشی از ncnn extract ناموفق بود (%1$s).</string>
     <string name="err_inference">خطا در اجرای مدل هوش مصنوعی (%1$s).</string>
     <string name="err_encode_write">خطا در فشرده‌سازی یا ذخیره فایل خروجی (فضای خالی حافظه را بررسی کنید).</string>
+    <string name="err_encode_write_detail">خطا در فشرده‌سازی یا ذخیره تصویر خروجی (%1$s).</string>
     <string name="err_unknown">خطای غیرمنتظره (%1$s).</string>
+    <string name="action_error_details">جزئیات خطا</string>
+    <string name="error_dialog_title">گزارش عیب‌یابی موتور بومی</string>
+    <string name="action_copy_diag">کپی گزارش</string>
+    <string name="diag_copied_toast">گزارش عیب‌یابی در حافظه کپی شد</string>
+    <string name="action_close">بستن</string>
 </resources>

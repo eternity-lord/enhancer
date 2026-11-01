@@ -107,6 +107,12 @@ class MainActivity : ComponentActivity() {
                     when {
                         showAboutScreen -> {
                             AboutScreen(
+                                uiState = uiState,
+                                onRunSelfTest = {
+                                    coroutineScope.launch {
+                                        repo.runDiagnosticsSelfTest()
+                                    }
+                                },
                                 onBack = { showAboutScreen = false }
                             )
                         }
@@ -167,6 +173,9 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onTtaX8Changed = { tta ->
                                     repo.updateSettings { it.copy(ttaX8 = tta) }
+                                },
+                                onSafeModeChanged = { safe ->
+                                    repo.updateSettings { it.copy(safeMode = safe) }
                                 },
                                 onSharpnessChanged = { sharp ->
                                     repo.updateSettings { it.copy(sharpness = sharp.coerceIn(0, 100)) }

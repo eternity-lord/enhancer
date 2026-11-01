@@ -106,13 +106,23 @@ data class EnhancerSettings(
     val target: TargetPreset = TargetPreset.UHD_4K,
     val maxQuality: Boolean = false,
     val ttaX8: Boolean = false,
+    val safeMode: Boolean = false, // Forces CPU + tile 64 + no Max quality + no TTA
     val sharpness: Int = 0, // 0..100 (0 = off)
     val format: OutputFormat = OutputFormat.JPEG,
     val jpegQuality: Int = 98, // 90..100, always 4:4:4 full chroma
     val tileSize: TileSizeOption = TileSizeOption.AUTO,
     val disableFp16: Boolean = false,
     val languageMode: AppLanguageMode = AppLanguageMode.SYSTEM
-)
+) {
+    val effectiveMaxQuality: Boolean
+        get() = if (safeMode) false else maxQuality
+
+    val effectiveTtaX8: Boolean
+        get() = if (safeMode) false else ttaX8
+
+    val effectiveTileSize: TileSizeOption
+        get() = if (safeMode) TileSizeOption.TILE_64 else tileSize
+}
 
 data class ResolutionPlan(
     val srcWidth: Int,
@@ -144,10 +154,22 @@ fun computeResolutionPlan(
         )
     }
     val m = model.scale
+    val mLong = m.toLong()
+    val scaledWLong = srcWidth.toLong() * mLong
+    val scaledHLong = srcHeight.toLong() * mLong
+    if (scaledWLong > (Int.MAX_VALUE / 4).toLong() || scaledHLong > (Int.MAX_VALUE / 4).toLong()) {
+        return ResolutionPlan(
+            0, 0, 0, 0, 0, 0, 0, 0,
+            preDownscaled = false,
+            postUpscaled = false,
+            postDownscaled = false
+        )
+    }
+
     val targetLong = target.targetLongSide
     if (targetLong <= 0) {
-        val outW = srcWidth * m
-        val outH = srcHeight * m
+        val outW = scaledWLong.toInt()
+        val outH = scaledHLong.toInt()
         return ResolutionPlan(
             srcWidth = srcWidth,
             srcHeight = srcHeight,
@@ -164,8 +186,8 @@ fun computeResolutionPlan(
     }
 
     if (maxQuality) {
-        val modelW = srcWidth * m
-        val modelH = srcHeight * m
+        val modelW = scaledWLong.toInt()
+        val modelH = scaledHLong.toInt()
         val finalW: Int
         val finalH: Int
         if (srcWidth >= srcHeight) {
@@ -192,7 +214,7 @@ fun computeResolutionPlan(
     }
 
     val srcLong = max(srcWidth, srcHeight)
-    val nativeLong = srcLong.toLong() * m.toLong()
+    val nativeLong = srcLong.toLong() * mLong
     return if (nativeLong >= targetLong.toLong()) {
         val workLong = max(1, targetLong / m)
         val workW: Int
@@ -204,8 +226,8 @@ fun computeResolutionPlan(
             workH = workLong
             workW = max(1, (srcWidth.toDouble() * workLong / srcHeight.toDouble()).roundToInt())
         }
-        val outW = workW * m
-        val outH = workH * m
+        val outW = (workW.toLong() * mLong).toInt()
+        val outH = (workH.toLong() * mLong).toInt()
         ResolutionPlan(
             srcWidth = srcWidth,
             srcHeight = srcHeight,
@@ -220,8 +242,8 @@ fun computeResolutionPlan(
             postDownscaled = false
         )
     } else {
-        val modelW = srcWidth * m
-        val modelH = srcHeight * m
+        val modelW = scaledWLong.toInt()
+        val modelH = scaledHLong.toInt()
         val finalW: Int
         val finalH: Int
         if (srcWidth >= srcHeight) {
@@ -262,6 +284,12 @@ enum class QueueErrorKind {
     OUT_OF_MEMORY,
     ASSET_LOAD,
     BITMAP_LOCK,
+    VULKAN_INIT,
+    VK_ALLOCATOR,
+    NCNN_LOAD_PARAM,
+    NCNN_LOAD_MODEL,
+    NCNN_INPUT,
+    NCNN_EXTRACT,
     INFERENCE,
     ENCODE_WRITE,
     UNKNOWN
@@ -283,6 +311,7 @@ data class QueueItem(
     val activeBackend: String = "",
     val activeTileSize: Int = 200,
     val usedCpuFallback: Boolean = false,
+    val fallbackSummary: String = "",
     val outputUri: Uri? = null,
     val outputFileName: String = "",
     val outputWidth: Int = 0,
@@ -292,5 +321,6 @@ data class QueueItem(
     val targetUsed: TargetPreset? = null,
     val elapsedSeconds: Float = 0f,
     val errorKind: QueueErrorKind = QueueErrorKind.NONE,
+    val nativeStatusCode: Int = 0,
     val errorDetail: String = ""
 )

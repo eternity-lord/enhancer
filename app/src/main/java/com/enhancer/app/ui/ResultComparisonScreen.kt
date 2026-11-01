@@ -684,7 +684,12 @@ fun ResultComparisonScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            if (item.usedCpuFallback) {
+            if (item.fallbackSummary.isNotBlank()) {
+                WarningInlineBox(
+                    text = stringResource(R.string.fallback_chain_used, item.fallbackSummary)
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+            } else if (item.usedCpuFallback) {
                 WarningInlineBox(text = stringResource(R.string.fallback_notice))
                 Spacer(modifier = Modifier.height(6.dp))
             }
@@ -997,6 +1002,37 @@ private fun ReprocessSettingsSheet(
             HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
             Spacer(modifier = Modifier.height(10.dp))
 
+            // Safe Mode toggle (forces CPU + tile 64 + no Max quality + no TTA)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.label_safe_mode),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = stringResource(R.string.safe_mode_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Switch(
+                    checked = draft.safeMode,
+                    onCheckedChange = { draft = draft.copy(safeMode = it) }
+                )
+            }
+
+            if (draft.safeMode) {
+                Spacer(modifier = Modifier.height(6.dp))
+                WarningInlineBox(text = stringResource(R.string.safe_mode_active_banner))
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
             // Max Quality toggle
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1016,8 +1052,9 @@ private fun ReprocessSettingsSheet(
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Switch(
-                    checked = draft.maxQuality,
-                    onCheckedChange = { draft = draft.copy(maxQuality = it) }
+                    checked = draft.effectiveMaxQuality,
+                    onCheckedChange = { draft = draft.copy(maxQuality = it) },
+                    enabled = !draft.safeMode
                 )
             }
 
@@ -1042,12 +1079,13 @@ private fun ReprocessSettingsSheet(
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Switch(
-                    checked = draft.ttaX8,
-                    onCheckedChange = { draft = draft.copy(ttaX8 = it) }
+                    checked = draft.effectiveTtaX8,
+                    onCheckedChange = { draft = draft.copy(ttaX8 = it) },
+                    enabled = !draft.safeMode
                 )
             }
 
-            if (draft.ttaX8) {
+            if (draft.effectiveTtaX8) {
                 Spacer(modifier = Modifier.height(6.dp))
                 WarningInlineBox(text = stringResource(R.string.warn_tta_slow))
             }

@@ -18,13 +18,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Compare
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -36,15 +42,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -68,6 +81,9 @@ fun QueueItemCard(
     modifier: Modifier = Modifier
 ) {
     val activeSettings = item.appliedSettings ?: item.settingsOverride ?: settings
+    val context = LocalContext.current
+    val copiedToastText = stringResource(R.string.diag_copied_toast)
+    var showErrorDialog by rememberSaveable { mutableStateOf(false) }
 
     val ramEstimate = remember(
         item.sourceWidth,
@@ -198,8 +214,13 @@ fun QueueItemCard(
                 }
             }
 
-            // Active v2.0 quality feature chips (Max Quality, TTA x8, Sharpness, Custom Settings)
-            if (activeSettings.maxQuality || activeSettings.ttaX8 || activeSettings.sharpness > 0 || item.settingsOverride != null) {
+            // Active v2.0 quality & safety feature chips (Safe Mode, Max Quality, TTA x8, Sharpness, Custom Settings)
+            if (activeSettings.safeMode ||
+                activeSettings.effectiveMaxQuality ||
+                activeSettings.effectiveTtaX8 ||
+                activeSettings.sharpness > 0 ||
+                item.settingsOverride != null
+            ) {
                 Spacer(modifier = Modifier.height(8.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -208,10 +229,13 @@ fun QueueItemCard(
                     if (item.settingsOverride != null) {
                         MiniFeatureBadge(stringResource(R.string.badge_custom_settings))
                     }
-                    if (activeSettings.maxQuality) {
+                    if (activeSettings.safeMode) {
+                        MiniFeatureBadge(stringResource(R.string.badge_safe_mode))
+                    }
+                    if (activeSettings.effectiveMaxQuality) {
                         MiniFeatureBadge(stringResource(R.string.badge_max_quality))
                     }
-                    if (activeSettings.ttaX8) {
+                    if (activeSettings.effectiveTtaX8) {
                         MiniFeatureBadge(stringResource(R.string.badge_tta_x8))
                     }
                     if (activeSettings.sharpness > 0) {
@@ -309,19 +333,24 @@ fun QueueItemCard(
                 }
             }
 
-            // Done state: backend, elapsed time, fallback note, Compare & Share button
+            // Done state: backend, elapsed time, exact fallback chain used, Compare & Share button
             if (item.status == QueueItemStatus.DONE) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = stringResource(
                         R.string.done_summary,
-                        item.activeBackend.ifBlank { "Vulkan" },
+                        item.activeBackend.ifBlank { if (activeSettings.safeMode) "CPU" else "Vulkan" },
                         item.elapsedSeconds
                     ),
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF6EE7B7)
                 )
-                if (item.usedCpuFallback) {
+                if (item.fallbackSummary.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    WarningInlineBox(
+                        text = stringResource(R.string.fallback_chain_used, item.fallbackSummary)
+                    )
+                } else if (item.usedCpuFallback) {
                     Spacer(modifier = Modifier.height(6.dp))
                     WarningInlineBox(text = stringResource(R.string.fallback_notice))
                 }
@@ -340,7 +369,7 @@ fun QueueItemCard(
                 }
             }
 
-            // Failed or Cancelled state: reason + Retry button
+            // Failed or Cancelled state: distinct reason + full native diagnostic dialog + Retry button
             if (item.status == QueueItemStatus.FAILED || item.status == QueueItemStatus.CANCELLED) {
                 if (item.status == QueueItemStatus.FAILED) {
                     Spacer(modifier = Modifier.height(10.dp))
@@ -352,8 +381,20 @@ fun QueueItemCard(
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    if (item.status == QueueItemStatus.FAILED && item.errorDetail.isNotBlank()) {
+                        OutlinedButton(onClick = { showErrorDialog = true }) {
+                            Icon(
+                                imageVector = Icons.Default.BugReport,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(stringResource(R.string.action_error_details))
+                        }
+                    }
                     FilledTonalButton(onClick = onRetry) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
@@ -366,6 +407,69 @@ fun QueueItemCard(
                 }
             }
         }
+    }
+
+    if (showErrorDialog && item.errorDetail.isNotBlank()) {
+        AlertDialog(
+            onDismissRequest = { showErrorDialog = false },
+            title = {
+                Text(
+                    text = stringResource(R.string.error_dialog_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = resolveErrorMessage(item),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                    ) {
+                        SelectionContainer {
+                            Text(
+                                text = item.errorDetail,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        copyToClipboard(context, item.errorDetail, copiedToastText)
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(stringResource(R.string.action_copy_diag))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showErrorDialog = false }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            }
+        )
     }
 }
 
@@ -431,20 +535,57 @@ private fun StatusBadge(item: QueueItem) {
 
 @Composable
 private fun resolveErrorMessage(item: QueueItem): String {
+    val detail = item.errorDetail
     return when (item.errorKind) {
         QueueErrorKind.DECODE_SOURCE -> stringResource(R.string.err_decode_source)
         QueueErrorKind.MEDIASTORE_CREATE -> stringResource(R.string.err_mediastore_create)
-        QueueErrorKind.OUT_OF_MEMORY -> stringResource(R.string.err_oom)
-        QueueErrorKind.ASSET_LOAD -> stringResource(R.string.err_asset_load)
-        QueueErrorKind.BITMAP_LOCK -> stringResource(R.string.err_bitmap_lock)
+        QueueErrorKind.OUT_OF_MEMORY -> {
+            if (detail.isNotBlank()) stringResource(R.string.err_oom_with_detail, detail)
+            else stringResource(R.string.err_oom)
+        }
+        QueueErrorKind.ASSET_LOAD -> {
+            if (detail.isNotBlank()) stringResource(R.string.err_asset_load_detail, detail)
+            else stringResource(R.string.err_asset_load)
+        }
+        QueueErrorKind.BITMAP_LOCK -> {
+            if (detail.isNotBlank()) stringResource(R.string.err_bitmap_lock_detail, detail)
+            else stringResource(R.string.err_bitmap_lock)
+        }
+        QueueErrorKind.VULKAN_INIT -> stringResource(
+            R.string.err_vulkan_init,
+            detail.ifBlank { "ERR_VULKAN_INIT" }
+        )
+        QueueErrorKind.VK_ALLOCATOR -> stringResource(
+            R.string.err_vk_allocator,
+            detail.ifBlank { "ERR_VK_ALLOCATOR" }
+        )
+        QueueErrorKind.NCNN_LOAD_PARAM -> stringResource(
+            R.string.err_ncnn_load_param,
+            detail.ifBlank { "ERR_NCNN_LOAD_PARAM" }
+        )
+        QueueErrorKind.NCNN_LOAD_MODEL -> stringResource(
+            R.string.err_ncnn_load_model,
+            detail.ifBlank { "ERR_NCNN_LOAD_MODEL" }
+        )
+        QueueErrorKind.NCNN_INPUT -> stringResource(
+            R.string.err_ncnn_input,
+            detail.ifBlank { "ERR_NCNN_INPUT" }
+        )
+        QueueErrorKind.NCNN_EXTRACT -> stringResource(
+            R.string.err_ncnn_extract,
+            detail.ifBlank { "ERR_NCNN_EXTRACT" }
+        )
         QueueErrorKind.INFERENCE -> stringResource(
             R.string.err_inference,
-            item.errorDetail.ifBlank { "ncnn" }
+            detail.ifBlank { "ERR_INFERENCE" }
         )
-        QueueErrorKind.ENCODE_WRITE -> stringResource(R.string.err_encode_write)
+        QueueErrorKind.ENCODE_WRITE -> {
+            if (detail.isNotBlank()) stringResource(R.string.err_encode_write_detail, detail)
+            else stringResource(R.string.err_encode_write)
+        }
         else -> stringResource(
             R.string.err_unknown,
-            item.errorDetail.ifBlank { "error" }
+            detail.ifBlank { "code=${item.nativeStatusCode}" }
         )
     }
 }

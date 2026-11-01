@@ -28,8 +28,10 @@ Enhancer declares **no internet permission at all** (`android.permission.INTERNE
   - Configurable JPEG quality slider (`90..100`, default `98`) encoding true **`4:4:4` full chroma** (`SOF0` `1×1` sampling on Y, Cb, Cr — zero `4:2:0` chroma subsampling across the entire `90..100` range), while keeping lossless **PNG**.
 - **Per-Image Re-Run ("Re-process with different settings")**:
   - Re-run any finished result directly from the comparison screen with different model, target, Max Quality, TTA, sharpness, or format settings while keeping both the original image and your already-saved result.
-- **Version 2.0 & About Screen**:
-  - Displays `Version 2.0` (`BuildConfig.VERSION_NAME`) in the header and adds an **About / Info** screen with localized author credit (`Built by Mohammad Irani` / `ساخته شده توسط محمد ایرانی`) and open-source licenses.
+- **Version 2.0, Diagnostics & Self-Test**:
+  - Displays `Version 2.0` (`BuildConfig.VERSION_NAME`) in the header and includes a **Diagnostics** panel on the **About** screen with Vulkan heap-budget inspection, structured native diagnostic logs, and a one-tap **"Run self-test"** button (`256×256` synthetic image through `realesrgan-x4plus` on both Vulkan and CPU at `tile = 64`).
+- **Ordered Automatic Fallback Chain & Safe Mode**:
+  - Single full-size output buffer (`final_rgb`) with streaming row-by-row `4:4:4` JPEG and zlib PNG encoders (zero duplicate full-size copies), GPU `get_heap_budget()` tile capping, per-tile Vulkan allocator clearing, and automatic step-by-step recovery (`halve tile down to 48 px` → `disable TTA` → `disable Max Quality` → `switch to CPU`), plus an explicit **Safe Mode** toggle (`CPU + tile 64 + no Max Quality + no TTA`).
 
 ### Core Features (Preserved from 1.0)
 - **5 Bundled Offline Models**:

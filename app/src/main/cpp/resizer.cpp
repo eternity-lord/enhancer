@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 namespace enhancer {
@@ -73,12 +74,19 @@ DimensionPlan compute_dimensions(
         return plan;
     }
 
+    const int64_t scaled_src_w = static_cast<int64_t>(src_w) * static_cast<int64_t>(model_scale);
+    const int64_t scaled_src_h = static_cast<int64_t>(src_h) * static_cast<int64_t>(model_scale);
+    if (scaled_src_w > static_cast<int64_t>(std::numeric_limits<int>::max() / 4) ||
+        scaled_src_h > static_cast<int64_t>(std::numeric_limits<int>::max() / 4)) {
+        return DimensionPlan{};
+    }
+
     if (target_long_side <= 0) {
         // Native xN mode: run model directly with no pre/post resize
         plan.work_w = src_w;
         plan.work_h = src_h;
-        plan.model_out_w = src_w * model_scale;
-        plan.model_out_h = src_h * model_scale;
+        plan.model_out_w = static_cast<int>(scaled_src_w);
+        plan.model_out_h = static_cast<int>(scaled_src_h);
         plan.final_w = plan.model_out_w;
         plan.final_h = plan.model_out_h;
         return plan;
@@ -88,8 +96,8 @@ DimensionPlan compute_dimensions(
         // Max quality mode: ALWAYS run the model on the full-resolution source (never pre-downscale).
         plan.work_w = src_w;
         plan.work_h = src_h;
-        plan.model_out_w = src_w * model_scale;
-        plan.model_out_h = src_h * model_scale;
+        plan.model_out_w = static_cast<int>(scaled_src_w);
+        plan.model_out_h = static_cast<int>(scaled_src_h);
 
         if (src_w >= src_h) {
             plan.final_w = target_long_side;
@@ -137,8 +145,8 @@ DimensionPlan compute_dimensions(
                 static_cast<int>(std::lround(static_cast<double>(src_w) * work_long / static_cast<double>(src_h)))
             );
         }
-        plan.model_out_w = plan.work_w * model_scale;
-        plan.model_out_h = plan.work_h * model_scale;
+        plan.model_out_w = static_cast<int>(static_cast<int64_t>(plan.work_w) * static_cast<int64_t>(model_scale));
+        plan.model_out_h = static_cast<int>(static_cast<int64_t>(plan.work_h) * static_cast<int64_t>(model_scale));
         plan.final_w = plan.model_out_w;
         plan.final_h = plan.model_out_h;
         plan.pre_downscaled = (plan.work_w < src_w || plan.work_h < src_h);
@@ -148,8 +156,8 @@ DimensionPlan compute_dimensions(
         // Standard Rule 3: source_long * m < target -> native AI pass + Lanczos3 upscale
         plan.work_w = src_w;
         plan.work_h = src_h;
-        plan.model_out_w = src_w * model_scale;
-        plan.model_out_h = src_h * model_scale;
+        plan.model_out_w = static_cast<int>(scaled_src_w);
+        plan.model_out_h = static_cast<int>(scaled_src_h);
         if (src_w >= src_h) {
             plan.final_w = target_long_side;
             plan.final_h = std::max(
@@ -184,7 +192,7 @@ bool downscale_rgba_to_rgb_box(
     if (!src_rgba || !dst_rgb || src_w <= 0 || src_h <= 0 || dst_w <= 0 || dst_h <= 0) {
         return false;
     }
-    if (src_stride_bytes < src_w * 4) {
+    if (static_cast<int64_t>(src_stride_bytes) < static_cast<int64_t>(src_w) * 4) {
         return false;
     }
 
@@ -196,9 +204,11 @@ bool downscale_rgba_to_rgb_box(
             const uint8_t* srow = src_rgba + static_cast<size_t>(y) * static_cast<size_t>(src_stride_bytes);
             uint8_t* drow = dst_rgb + static_cast<size_t>(y) * static_cast<size_t>(dst_w) * 3;
             for (int x = 0; x < dst_w; ++x) {
-                drow[x * 3 + 0] = srow[x * 4 + 0];
-                drow[x * 3 + 1] = srow[x * 4 + 1];
-                drow[x * 3 + 2] = srow[x * 4 + 2];
+                const size_t dx3 = static_cast<size_t>(x) * 3;
+                const size_t sx4 = static_cast<size_t>(x) * 4;
+                drow[dx3 + 0] = srow[sx4 + 0];
+                drow[dx3 + 1] = srow[sx4 + 1];
+                drow[dx3 + 2] = srow[sx4 + 2];
             }
         }
         return true;
@@ -301,7 +311,7 @@ bool downscale_rgba_to_rgb_box(
                 float row_b = 0.0f;
                 for (int ix = 0; ix < x_span.count; ++ix) {
                     const float wx = wx_ptr[ix];
-                    const uint8_t* px = src_row + ix * 4;
+                    const uint8_t* px = src_row + static_cast<size_t>(ix) * 4;
                     row_r += static_cast<float>(px[0]) * wx;
                     row_g += static_cast<float>(px[1]) * wx;
                     row_b += static_cast<float>(px[2]) * wx;
@@ -311,9 +321,10 @@ bool downscale_rgba_to_rgb_box(
                 acc_b += row_b * wy;
             }
 
-            dst_row[dx * 3 + 0] = clamp_float_to_u8(acc_r);
-            dst_row[dx * 3 + 1] = clamp_float_to_u8(acc_g);
-            dst_row[dx * 3 + 2] = clamp_float_to_u8(acc_b);
+            const size_t dx3 = static_cast<size_t>(dx) * 3;
+            dst_row[dx3 + 0] = clamp_float_to_u8(acc_r);
+            dst_row[dx3 + 1] = clamp_float_to_u8(acc_g);
+            dst_row[dx3 + 2] = clamp_float_to_u8(acc_b);
         }
     }
 
@@ -401,8 +412,12 @@ bool StreamingLanczos3Resizer::init(
         ring_slots_ *= 2;
     }
 
-    row_floats_ = static_cast<size_t>(dst_w_) * 3;
-    row_ring_.assign(static_cast<size_t>(ring_slots_) * row_floats_, 0.0f);
+    size_t ring_elems = 0;
+    if (!checked_mul_size(static_cast<size_t>(dst_w_), 3u, row_floats_) ||
+        !checked_mul_size(static_cast<size_t>(ring_slots_), row_floats_, ring_elems)) {
+        return false;
+    }
+    row_ring_.assign(ring_elems, 0.0f);
     slot_sy_.assign(static_cast<size_t>(ring_slots_), -1);
 
     reset_stream();
@@ -583,7 +598,8 @@ bool resize_rgba_roi_bicubic(
 ) {
     if (!src_rgba || !dst_rgba ||
         src_w <= 0 || src_h <= 0 || dst_w <= 0 || dst_h <= 0 ||
-        src_stride_bytes < src_w * 4 || dst_stride_bytes < dst_w * 4) {
+        static_cast<int64_t>(src_stride_bytes) < static_cast<int64_t>(src_w) * 4 ||
+        static_cast<int64_t>(dst_stride_bytes) < static_cast<int64_t>(dst_w) * 4) {
         return false;
     }
 
@@ -667,10 +683,11 @@ bool resize_rgba_roi_bicubic(
                 g += gg * wy;
                 b += bb * wy;
             }
-            drow[dx * 4 + 0] = clamp_float_to_u8(r);
-            drow[dx * 4 + 1] = clamp_float_to_u8(g);
-            drow[dx * 4 + 2] = clamp_float_to_u8(b);
-            drow[dx * 4 + 3] = 255;
+            const size_t dx4 = static_cast<size_t>(dx) * 4;
+            drow[dx4 + 0] = clamp_float_to_u8(r);
+            drow[dx4 + 1] = clamp_float_to_u8(g);
+            drow[dx4 + 2] = clamp_float_to_u8(b);
+            drow[dx4 + 3] = 255;
         }
     }
 

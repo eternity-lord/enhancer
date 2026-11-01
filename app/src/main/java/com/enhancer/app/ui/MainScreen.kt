@@ -82,6 +82,7 @@ fun MainScreen(
     onTargetSelected: (TargetPreset) -> Unit,
     onMaxQualityChanged: (Boolean) -> Unit,
     onTtaX8Changed: (Boolean) -> Unit,
+    onSafeModeChanged: (Boolean) -> Unit,
     onSharpnessChanged: (Int) -> Unit,
     onFormatSelected: (OutputFormat) -> Unit,
     onJpegQualityChanged: (Int) -> Unit,
@@ -167,7 +168,7 @@ fun MainScreen(
                 }
             }
 
-            // Controls Card (Model, Target, Max Quality, TTA x8, Sharpness, Format/JPEG 4:4:4, Tile Size, fp16)
+            // Controls Card (Model, Target, Safe Mode, Max Quality, TTA x8, Sharpness, Format/JPEG 4:4:4, Tile Size, fp16)
             item {
                 ControlsSection(
                     settings = uiState.settings,
@@ -176,6 +177,7 @@ fun MainScreen(
                     onTargetSelected = onTargetSelected,
                     onMaxQualityChanged = onMaxQualityChanged,
                     onTtaX8Changed = onTtaX8Changed,
+                    onSafeModeChanged = onSafeModeChanged,
                     onSharpnessChanged = onSharpnessChanged,
                     onFormatSelected = onFormatSelected,
                     onJpegQualityChanged = onJpegQualityChanged,
@@ -301,7 +303,12 @@ private fun HeaderSection(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                val gpuText = if (uiState.vulkanDeviceName.isNotBlank()) {
+                val gpuText = if (uiState.settings.safeMode) {
+                    stringResource(
+                        R.string.diag_safe_mode_status,
+                        stringResource(R.string.diag_state_on)
+                    )
+                } else if (uiState.vulkanDeviceName.isNotBlank()) {
                     stringResource(R.string.gpu_detected, uiState.vulkanDeviceName)
                 } else {
                     stringResource(R.string.gpu_unavailable_cpu)

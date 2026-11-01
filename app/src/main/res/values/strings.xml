@@ -67,6 +67,11 @@
     <string name="label_disable_fp16">Disable fp16 Precision</string>
     <string name="disable_fp16_desc">Use full fp32 math if your GPU produces color artifacts (uses more RAM &amp; time)</string>
 
+    <string name="label_safe_mode">Safe Mode</string>
+    <string name="safe_mode_desc">Forces CPU + tile 64 + no Max Quality + no TTA for maximum stability</string>
+    <string name="safe_mode_active_banner">Safe Mode active: running on CPU with 64 px tiles, Max Quality OFF, and TTA OFF.</string>
+    <string name="badge_safe_mode">Safe Mode</string>
+
     <!-- Queue controls & overall status -->
     <string name="queue_header">Processing Queue (%1$d)</string>
     <string name="overall_progress_label">Overall: %1$d / %2$d done (%3$d%%)</string>
@@ -129,6 +134,7 @@
     <string name="btn_open_gallery">Open in Gallery</string>
     <string name="backend_ran_label">Backend: %1$s</string>
     <string name="fallback_notice">Vulkan was unavailable or failed mid-run; completed automatically on CPU.</string>
+    <string name="fallback_chain_used">Completed after automatic fallback: %1$s</string>
     <string name="share_chooser_title">Share Enhanced Image</string>
     <string name="error_no_gallery_app">No gallery viewer app found on this device.</string>
     <string name="error_no_share_app">No app available to share this image.</string>
@@ -156,13 +162,46 @@
     <string name="notif_thermal_text">Waiting for device temperature to drop before continuing</string>
     <string name="notif_action_cancel">Cancel</string>
 
+    <!-- Diagnostics & Self-Test on About Screen -->
+    <string name="diag_section_title">Diagnostics</string>
+    <string name="diag_hardware_label">Hardware &amp; Vulkan Runtime</string>
+    <string name="diag_ram_line">System RAM: %1$d MB free / %2$d MB total</string>
+    <string name="diag_safe_mode_status">Safe Mode: %1$s</string>
+    <string name="diag_state_on">ON (CPU + tile 64)</string>
+    <string name="diag_state_off">OFF</string>
+    <string name="diag_self_test_desc" formatted="false">Runs a synthetic 256×256 test image through realesrgan-x4plus once on Vulkan and once on CPU (tile = 64, no Max Quality, no TTA).</string>
+    <string name="btn_run_self_test">Run self-test</string>
+    <string name="self_test_running">Running Vulkan &amp; CPU self-test…</string>
+    <string name="self_test_busy_queue">Wait for the active queue to finish before running self-test.</string>
+    <string name="self_test_vulkan_row">Vulkan • %1$s (%2$d ms)</string>
+    <string name="self_test_cpu_row">CPU • %1$s (%2$d ms)</string>
+    <string name="self_test_pass">PASS</string>
+    <string name="self_test_fail">FAIL</string>
+    <string name="diag_latest_native_title">Latest Native Diagnostic Message</string>
+    <string name="diag_no_message_yet">No native job or self-test run recorded yet.</string>
+
     <!-- Error messages -->
     <string name="err_decode_source">Could not decode source image.</string>
     <string name="err_mediastore_create">Could not create output file in Pictures/Enhancer.</string>
     <string name="err_oom">Out of memory during native upscaling. Try smaller target or tile size.</string>
+    <string name="err_oom_with_detail">Out of memory in native allocation (%1$s).</string>
     <string name="err_asset_load">Failed to load Real-ESRGAN model from app assets.</string>
+    <string name="err_asset_load_detail">Failed to access app assets (%1$s).</string>
     <string name="err_bitmap_lock">Failed to lock source Bitmap pixels.</string>
+    <string name="err_bitmap_lock_detail">Failed to lock source Bitmap pixels (%1$s).</string>
+    <string name="err_vulkan_init">Vulkan GPU initialization failed (%1$s).</string>
+    <string name="err_vk_allocator">Vulkan GPU allocator creation failed (%1$s).</string>
+    <string name="err_ncnn_load_param">ncnn load_param failed (%1$s).</string>
+    <string name="err_ncnn_load_model">ncnn load_model failed (%1$s).</string>
+    <string name="err_ncnn_input">ncnn input tensor feed failed (%1$s).</string>
+    <string name="err_ncnn_extract">ncnn output extraction failed (%1$s).</string>
     <string name="err_inference">AI inference failed (%1$s).</string>
     <string name="err_encode_write">Failed encoding or writing output image (check free storage).</string>
+    <string name="err_encode_write_detail">Failed encoding or writing output image (%1$s).</string>
     <string name="err_unknown">Unexpected error (%1$s).</string>
+    <string name="action_error_details">Diagnostics</string>
+    <string name="error_dialog_title">Native Diagnostic Report</string>
+    <string name="action_copy_diag">Copy Log</string>
+    <string name="diag_copied_toast">Diagnostic report copied to clipboard</string>
+    <string name="action_close">Close</string>
 </resources>

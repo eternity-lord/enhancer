@@ -69,12 +69,13 @@ class EnhancerForegroundService : Service() {
             }
         }
 
+        val initialBackend = if (appInstance.queueRepository.state.value.settings.safeMode) "CPU" else "Vulkan"
         val initialNotification = buildRunningNotification(
             currentIndex = 1,
             totalCount = appInstance.queueRepository.state.value.items.size.coerceAtLeast(1),
             progress = 0,
             fileName = getString(R.string.app_name),
-            backend = "Vulkan"
+            backend = initialBackend
         )
         promoteToForeground(initialNotification)
 
@@ -216,10 +217,11 @@ class EnhancerForegroundService : Service() {
                 binAssetPath = settings.model.binAssetPath,
                 modelScale = settings.model.scale,
                 targetLongSide = settings.target.targetLongSide,
-                tileSize = settings.tileSize.nativeArg,
+                tileSize = settings.effectiveTileSize.nativeArg,
                 disableFp16 = settings.disableFp16,
-                maxQuality = settings.maxQuality,
-                ttaX8 = settings.ttaX8,
+                maxQuality = settings.effectiveMaxQuality,
+                ttaX8 = settings.effectiveTtaX8,
+                safeMode = settings.safeMode,
                 sharpness = settings.sharpness,
                 outputFormatCode = settings.format.nativeCode,
                 jpegQuality = settings.jpegQuality,
@@ -271,6 +273,8 @@ class EnhancerForegroundService : Service() {
                         backendUsed = outcome.backendUsed,
                         usedCpuFallback = outcome.usedCpuFallback,
                         finalTileSize = outcome.finalTileSize,
+                        fallbackSummary = outcome.fallbackSummary,
+                        nativeDiagnostic = outcome.errorDetail,
                         modelUsed = settings.model,
                         targetUsed = settings.target,
                         appliedSettings = settings,
@@ -288,6 +292,12 @@ class EnhancerForegroundService : Service() {
                     NativeStatusCode.ERR_OUT_OF_MEMORY -> QueueErrorKind.OUT_OF_MEMORY
                     NativeStatusCode.ERR_ASSET_LOAD -> QueueErrorKind.ASSET_LOAD
                     NativeStatusCode.ERR_BITMAP_LOCK -> QueueErrorKind.BITMAP_LOCK
+                    NativeStatusCode.ERR_VULKAN_INIT -> QueueErrorKind.VULKAN_INIT
+                    NativeStatusCode.ERR_VK_ALLOCATOR -> QueueErrorKind.VK_ALLOCATOR
+                    NativeStatusCode.ERR_NCNN_LOAD_PARAM -> QueueErrorKind.NCNN_LOAD_PARAM
+                    NativeStatusCode.ERR_NCNN_LOAD_MODEL -> QueueErrorKind.NCNN_LOAD_MODEL
+                    NativeStatusCode.ERR_NCNN_INPUT -> QueueErrorKind.NCNN_INPUT
+                    NativeStatusCode.ERR_NCNN_EXTRACT -> QueueErrorKind.NCNN_EXTRACT
                     NativeStatusCode.ERR_INFERENCE -> QueueErrorKind.INFERENCE
                     NativeStatusCode.ERR_ENCODE_WRITE -> QueueErrorKind.ENCODE_WRITE
                     else -> QueueErrorKind.UNKNOWN
@@ -296,7 +306,9 @@ class EnhancerForegroundService : Service() {
                     itemId = item.id,
                     errorKind = kind,
                     errorDetail = outcome.errorDetail,
-                    backendUsed = outcome.backendUsed
+                    backendUsed = outcome.backendUsed,
+                    nativeStatusCode = outcome.rawStatusCode,
+                    fallbackSummary = outcome.fallbackSummary
                 )
             }
         }
