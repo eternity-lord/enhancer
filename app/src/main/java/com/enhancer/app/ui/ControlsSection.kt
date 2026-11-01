@@ -7,7 +7,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,11 +22,13 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -48,6 +49,7 @@ import com.enhancer.app.model.OutputFormat
 import com.enhancer.app.model.TargetPreset
 import com.enhancer.app.model.TileSizeOption
 import com.enhancer.app.model.UpscaleModel
+import kotlin.math.roundToInt
 
 @Composable
 fun ControlsSection(
@@ -55,7 +57,11 @@ fun ControlsSection(
     enabled: Boolean,
     onModelSelected: (UpscaleModel) -> Unit,
     onTargetSelected: (TargetPreset) -> Unit,
+    onMaxQualityChanged: (Boolean) -> Unit,
+    onTtaX8Changed: (Boolean) -> Unit,
+    onSharpnessChanged: (Int) -> Unit,
     onFormatSelected: (OutputFormat) -> Unit,
+    onJpegQualityChanged: (Int) -> Unit,
     onTileSizeSelected: (TileSizeOption) -> Unit,
     onDisableFp16Changed: (Boolean) -> Unit,
     modifier: Modifier = Modifier
@@ -188,8 +194,105 @@ fun ControlsSection(
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // 3. Output format (JPEG / PNG)
+                // 3. Max Quality mode toggle (off by default)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.label_max_quality),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = stringResource(R.string.max_quality_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(
+                        checked = settings.maxQuality,
+                        onCheckedChange = onMaxQualityChanged,
+                        enabled = enabled
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // 4. Optional TTA (x8 Mode) toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.label_tta_x8),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = stringResource(R.string.tta_x8_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(
+                        checked = settings.ttaX8,
+                        onCheckedChange = onTtaX8Changed,
+                        enabled = enabled
+                    )
+                }
+
+                if (settings.ttaX8) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    WarningInlineBox(text = stringResource(R.string.warn_tta_slow))
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 5. Optional Sharpness Control (0..100, default 0 = off)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SectionLabel(text = stringResource(R.string.label_sharpness))
+                    Text(
+                        text = if (settings.sharpness == 0) {
+                            stringResource(R.string.sharpness_off)
+                        } else {
+                            stringResource(R.string.sharpness_value, settings.sharpness)
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (settings.sharpness > 0) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+                Text(
+                    text = stringResource(R.string.sharpness_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Slider(
+                    value = settings.sharpness.toFloat(),
+                    onValueChange = { onSharpnessChanged(it.roundToInt().coerceIn(0, 100)) },
+                    valueRange = 0f..100f,
+                    enabled = enabled
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // 6. Output format (JPEG 4:4:4 quality 90..100 default 98 / PNG)
                 SectionLabel(text = stringResource(R.string.label_format))
                 Spacer(modifier = Modifier.height(6.dp))
                 FlowRow(
@@ -210,16 +313,31 @@ fun ControlsSection(
                     )
                 }
 
-                if (settings.format == OutputFormat.PNG) {
+                if (settings.format == OutputFormat.JPEG) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.label_jpeg_quality, settings.jpegQuality),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Slider(
+                        value = settings.jpegQuality.toFloat(),
+                        onValueChange = { onJpegQualityChanged(it.roundToInt().coerceIn(90, 100)) },
+                        valueRange = 90f..100f,
+                        steps = 9,
+                        enabled = enabled
+                    )
+                } else {
                     Spacer(modifier = Modifier.height(8.dp))
                     WarningInlineBox(
                         text = stringResource(R.string.png_slow_huge_warning)
                     )
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                // 4. Tile size
+                // 7. Tile size
                 SectionLabel(text = stringResource(R.string.label_tile_size))
                 Spacer(modifier = Modifier.height(6.dp))
                 FlowRow(
@@ -245,7 +363,7 @@ fun ControlsSection(
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // 5. Disable fp16 toggle
+                // 8. Disable fp16 toggle
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically

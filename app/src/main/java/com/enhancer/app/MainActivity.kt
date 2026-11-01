@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import com.enhancer.app.model.QueueItemStatus
 import com.enhancer.app.service.EnhancerForegroundService
+import com.enhancer.app.ui.AboutScreen
 import com.enhancer.app.ui.LocalizedAppContainer
 import com.enhancer.app.ui.MainScreen
 import com.enhancer.app.ui.ResultComparisonScreen
@@ -41,6 +42,7 @@ class MainActivity : ComponentActivity() {
             val coroutineScope = rememberCoroutineScope()
 
             var selectedResultItemId by rememberSaveable { mutableStateOf<String?>(null) }
+            var showAboutScreen by rememberSaveable { mutableStateOf(false) }
 
             // Android 13+ POST_NOTIFICATIONS launcher before starting Foreground Service
             val notifPermissionLauncher = rememberLauncherForActivityResult(
@@ -102,62 +104,90 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    if (compareItem != null) {
-                        ResultComparisonScreen(
-                            item = compareItem,
-                            onBack = { selectedResultItemId = null }
-                        )
-                    } else {
-                        MainScreen(
-                            uiState = uiState,
-                            onPickPhotos = {
-                                photoPickerLauncher.launch(
-                                    PickVisualMediaRequest(
-                                        ActivityResultContracts.PickVisualMedia.ImageOnly
-                                    )
-                                )
-                            },
-                            onBrowseFiles = {
-                                openDocumentLauncher.launch(arrayOf("image/*"))
-                            },
-                            onStartQueue = { triggerStartQueue() },
-                            onResumeThermal = {
-                                EnhancerForegroundService.resumeFromThermalPause(this@MainActivity)
-                            },
-                            onCancelAll = { repo.cancelAll() },
-                            onRetryAllFailed = {
-                                repo.retryAllFailed()
-                                triggerStartQueue()
-                            },
-                            onClearFinished = { repo.clearFinished() },
-                            onCancelItem = { id -> repo.cancelOrRemoveItem(id) },
-                            onRemoveItem = { id -> repo.removeItemCompletely(id) },
-                            onRetryItem = { id ->
-                                repo.retryItem(id)
-                                if (!uiState.isServiceRunning) {
+                    when {
+                        showAboutScreen -> {
+                            AboutScreen(
+                                onBack = { showAboutScreen = false }
+                            )
+                        }
+                        compareItem != null -> {
+                            ResultComparisonScreen(
+                                item = compareItem,
+                                defaultSettings = uiState.settings,
+                                deviceMemory = uiState.deviceMemory,
+                                onBack = { selectedResultItemId = null },
+                                onReprocessWithSettings = { customSettings ->
+                                    repo.enqueueReprocessItem(compareItem, customSettings)
+                                    selectedResultItemId = null
                                     triggerStartQueue()
                                 }
-                            },
-                            onOpenCompare = { id -> selectedResultItemId = id },
-                            onModelSelected = { model ->
-                                repo.updateSettings { it.copy(model = model) }
-                            },
-                            onTargetSelected = { target ->
-                                repo.updateSettings { it.copy(target = target) }
-                            },
-                            onFormatSelected = { format ->
-                                repo.updateSettings { it.copy(format = format) }
-                            },
-                            onTileSizeSelected = { tile ->
-                                repo.updateSettings { it.copy(tileSize = tile) }
-                            },
-                            onDisableFp16Changed = { disable ->
-                                repo.updateSettings { it.copy(disableFp16 = disable) }
-                            },
-                            onLanguageSelected = { mode ->
-                                repo.updateSettings { it.copy(languageMode = mode) }
-                            }
-                        )
+                            )
+                        }
+                        else -> {
+                            MainScreen(
+                                uiState = uiState,
+                                onPickPhotos = {
+                                    photoPickerLauncher.launch(
+                                        PickVisualMediaRequest(
+                                            ActivityResultContracts.PickVisualMedia.ImageOnly
+                                        )
+                                    )
+                                },
+                                onBrowseFiles = {
+                                    openDocumentLauncher.launch(arrayOf("image/*"))
+                                },
+                                onStartQueue = { triggerStartQueue() },
+                                onResumeThermal = {
+                                    EnhancerForegroundService.resumeFromThermalPause(this@MainActivity)
+                                },
+                                onCancelAll = { repo.cancelAll() },
+                                onRetryAllFailed = {
+                                    repo.retryAllFailed()
+                                    triggerStartQueue()
+                                },
+                                onClearFinished = { repo.clearFinished() },
+                                onCancelItem = { id -> repo.cancelOrRemoveItem(id) },
+                                onRemoveItem = { id -> repo.removeItemCompletely(id) },
+                                onRetryItem = { id ->
+                                    repo.retryItem(id)
+                                    if (!uiState.isServiceRunning) {
+                                        triggerStartQueue()
+                                    }
+                                },
+                                onOpenCompare = { id -> selectedResultItemId = id },
+                                onOpenAbout = { showAboutScreen = true },
+                                onModelSelected = { model ->
+                                    repo.updateSettings { it.copy(model = model) }
+                                },
+                                onTargetSelected = { target ->
+                                    repo.updateSettings { it.copy(target = target) }
+                                },
+                                onMaxQualityChanged = { maxQuality ->
+                                    repo.updateSettings { it.copy(maxQuality = maxQuality) }
+                                },
+                                onTtaX8Changed = { tta ->
+                                    repo.updateSettings { it.copy(ttaX8 = tta) }
+                                },
+                                onSharpnessChanged = { sharp ->
+                                    repo.updateSettings { it.copy(sharpness = sharp.coerceIn(0, 100)) }
+                                },
+                                onFormatSelected = { format ->
+                                    repo.updateSettings { it.copy(format = format) }
+                                },
+                                onJpegQualityChanged = { quality ->
+                                    repo.updateSettings { it.copy(jpegQuality = quality.coerceIn(90, 100)) }
+                                },
+                                onTileSizeSelected = { tile ->
+                                    repo.updateSettings { it.copy(tileSize = tile) }
+                                },
+                                onDisableFp16Changed = { disable ->
+                                    repo.updateSettings { it.copy(disableFp16 = disable) }
+                                },
+                                onLanguageSelected = { mode ->
+                                    repo.updateSettings { it.copy(languageMode = mode) }
+                                }
+                            )
+                        }
                     }
                 }
             }

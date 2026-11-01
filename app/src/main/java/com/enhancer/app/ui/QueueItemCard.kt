@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package com.enhancer.app.ui
 
 import androidx.compose.foundation.BorderStroke
@@ -6,6 +8,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -63,16 +67,18 @@ fun QueueItemCard(
     onOpenCompare: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val activeSettings = item.appliedSettings ?: item.settingsOverride ?: settings
+
     val ramEstimate = remember(
         item.sourceWidth,
         item.sourceHeight,
-        settings,
+        activeSettings,
         deviceMemory
     ) {
         MemoryEstimator.estimateForImage(
             srcWidth = item.sourceWidth,
             srcHeight = item.sourceHeight,
-            settings = settings,
+            settings = activeSettings,
             deviceMem = deviceMemory
         )
     }
@@ -192,6 +198,28 @@ fun QueueItemCard(
                 }
             }
 
+            // Active v2.0 quality feature chips (Max Quality, TTA x8, Sharpness, Custom Settings)
+            if (activeSettings.maxQuality || activeSettings.ttaX8 || activeSettings.sharpness > 0 || item.settingsOverride != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    if (item.settingsOverride != null) {
+                        MiniFeatureBadge(stringResource(R.string.badge_custom_settings))
+                    }
+                    if (activeSettings.maxQuality) {
+                        MiniFeatureBadge(stringResource(R.string.badge_max_quality))
+                    }
+                    if (activeSettings.ttaX8) {
+                        MiniFeatureBadge(stringResource(R.string.badge_tta_x8))
+                    }
+                    if (activeSettings.sharpness > 0) {
+                        MiniFeatureBadge(stringResource(R.string.badge_sharpness, activeSettings.sharpness))
+                    }
+                }
+            }
+
             // Pre-run / active warnings & resize notes
             if (item.status == QueueItemStatus.WAITING || item.status == QueueItemStatus.RUNNING) {
                 if (ramEstimate.isTooHighForDevice) {
@@ -214,6 +242,19 @@ fun QueueItemCard(
                             plan.workWidth,
                             plan.workHeight
                         )
+                    )
+                } else if (plan.postDownscaled) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = stringResource(
+                            R.string.info_max_quality_supersample,
+                            plan.modelOutWidth,
+                            plan.modelOutHeight,
+                            plan.finalWidth,
+                            plan.finalHeight
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 } else if (plan.postUpscaled) {
                     Spacer(modifier = Modifier.height(6.dp))
@@ -325,6 +366,22 @@ fun QueueItemCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun MiniFeatureBadge(text: String) {
+    Surface(
+        shape = RoundedCornerShape(6.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.7f)
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
+        )
     }
 }
 

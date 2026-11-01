@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -35,6 +36,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -51,6 +53,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.enhancer.app.BuildConfig
 import com.enhancer.app.R
 import com.enhancer.app.data.QueueUiState
 import com.enhancer.app.model.AppLanguageMode
@@ -74,9 +77,14 @@ fun MainScreen(
     onRemoveItem: (String) -> Unit,
     onRetryItem: (String) -> Unit,
     onOpenCompare: (String) -> Unit,
+    onOpenAbout: () -> Unit,
     onModelSelected: (UpscaleModel) -> Unit,
     onTargetSelected: (TargetPreset) -> Unit,
+    onMaxQualityChanged: (Boolean) -> Unit,
+    onTtaX8Changed: (Boolean) -> Unit,
+    onSharpnessChanged: (Int) -> Unit,
     onFormatSelected: (OutputFormat) -> Unit,
+    onJpegQualityChanged: (Int) -> Unit,
     onTileSizeSelected: (TileSizeOption) -> Unit,
     onDisableFp16Changed: (Boolean) -> Unit,
     onLanguageSelected: (AppLanguageMode) -> Unit
@@ -106,10 +114,11 @@ fun MainScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Top Header + Offline Badge + Language Toggle
+            // Top Header + Version 2.0 + Offline Badge + Info Icon + Language Toggle
             item {
                 HeaderSection(
                     uiState = uiState,
+                    onOpenAbout = onOpenAbout,
                     onLanguageSelected = onLanguageSelected
                 )
             }
@@ -158,14 +167,18 @@ fun MainScreen(
                 }
             }
 
-            // Controls Card (Model, Target, Format, Tile Size, Disable fp16)
+            // Controls Card (Model, Target, Max Quality, TTA x8, Sharpness, Format/JPEG 4:4:4, Tile Size, fp16)
             item {
                 ControlsSection(
                     settings = uiState.settings,
                     enabled = !uiState.isServiceRunning,
                     onModelSelected = onModelSelected,
                     onTargetSelected = onTargetSelected,
+                    onMaxQualityChanged = onMaxQualityChanged,
+                    onTtaX8Changed = onTtaX8Changed,
+                    onSharpnessChanged = onSharpnessChanged,
                     onFormatSelected = onFormatSelected,
+                    onJpegQualityChanged = onJpegQualityChanged,
                     onTileSizeSelected = onTileSizeSelected,
                     onDisableFp16Changed = onDisableFp16Changed
                 )
@@ -216,6 +229,7 @@ fun MainScreen(
 @Composable
 private fun HeaderSection(
     uiState: QueueUiState,
+    onOpenAbout: () -> Unit,
     onLanguageSelected: (AppLanguageMode) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -231,13 +245,26 @@ private fun HeaderSection(
             )
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Text(
                         text = stringResource(R.string.app_name),
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.secondaryContainer
+                    ) {
+                        Text(
+                            text = stringResource(R.string.version_format, BuildConfig.VERSION_NAME),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = MaterialTheme.colorScheme.tertiaryContainer
@@ -254,6 +281,13 @@ private fun HeaderSection(
                     text = stringResource(R.string.app_subtitle),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            IconButton(onClick = onOpenAbout) {
+                Icon(
+                    imageVector = Icons.Outlined.Info,
+                    contentDescription = stringResource(R.string.about_content_desc),
+                    tint = MaterialTheme.colorScheme.primary
                 )
             }
         }
