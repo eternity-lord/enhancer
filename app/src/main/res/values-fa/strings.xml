@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Enhancer</string>
     <string name="app_subtitle">افزایش کیفیت آفلاین تصویر با هوش مصنوعی • Real-ESRGAN</string>
-    <string name="offline_badge">۱۰۰٪ آفلاین</string>
+    <string name="offline_badge" formatted="false">۱۰۰٪ آفلاین</string>
 
     <!-- Language switcher -->
     <string name="lang_system">خودکار</string>
@@ -41,9 +41,9 @@
     <string name="target_8k">8K (۷۶۸۰ پیکسل)</string>
 
     <string name="label_format">فرمت ذخیره</string>
-    <string name="format_jpeg">JPEG (کیفیت ۹۵٪)</string>
+    <string name="format_jpeg" formatted="false">JPEG (کیفیت ۹۵٪)</string>
     <string name="format_png">PNG (بدون افت)</string>
-    <string name="png_slow_huge_warning">ذخیره با فرمت PNG در وضوح بالا بسیار کند است و فایل‌های بسیار حجیمی (۴۰ تا ۹۰ مگابایت در 8K) تولید می‌کند. فرمت JPEG 95% پیشنهاد می‌شود.</string>
+    <string name="png_slow_huge_warning" formatted="false">ذخیره با فرمت PNG در وضوح بالا بسیار کند است و فایل‌های بسیار حجیمی (۴۰ تا ۹۰ مگابایت در 8K) تولید می‌کند. فرمت JPEG 95% پیشنهاد می‌شود.</string>
 
     <string name="label_tile_size">اندازه کاشی (Tile)</string>
     <string name="tile_auto">خودکار (۲۰۰)</string>

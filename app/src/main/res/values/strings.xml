@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Enhancer</string>
     <string name="app_subtitle">Offline AI Image Upscaler • Real-ESRGAN</string>
-    <string name="offline_badge">100% Offline</string>
+    <string name="offline_badge" formatted="false">100% Offline</string>
 
     <!-- Language switcher -->
     <string name="lang_system">Auto</string>
@@ -41,9 +41,9 @@
     <string name="target_8k">8K (7680 px)</string>
 
     <string name="label_format">Output Format</string>
-    <string name="format_jpeg">JPEG (95%)</string>
+    <string name="format_jpeg" formatted="false">JPEG (95%)</string>
     <string name="format_png">PNG (Lossless)</string>
-    <string name="png_slow_huge_warning">PNG encoding is significantly slower and creates very large files (often 40–90 MB at 8K). JPEG 95% is recommended.</string>
+    <string name="png_slow_huge_warning" formatted="false">PNG encoding is significantly slower and creates very large files (often 40–90 MB at 8K). JPEG 95% is recommended.</string>
 
     <string name="label_tile_size">Tile Size</string>
     <string name="tile_auto">Auto (200)</string>
