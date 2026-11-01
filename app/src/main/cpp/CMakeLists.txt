@@ -52,4 +52,5 @@ target_link_libraries(enhancer PRIVATE
     android
     jnigraphics
     log
+    z
 )

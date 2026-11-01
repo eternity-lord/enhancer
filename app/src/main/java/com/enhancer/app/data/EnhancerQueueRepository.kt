@@ -15,6 +15,7 @@ import com.enhancer.app.model.TargetPreset
 import com.enhancer.app.model.TileSizeOption
 import com.enhancer.app.model.UpscaleModel
 import com.enhancer.app.nativebridge.NativeEnhancer
+import com.enhancer.app.nativebridge.NativeSelfTestResult
 import com.enhancer.app.util.DeviceMemorySnapshot
 import com.enhancer.app.util.ImageHelper
 import com.enhancer.app.util.MemoryEstimator
@@ -33,6 +34,10 @@ data class QueueUiState(
     val isPausedThermal: Boolean = false,
     @StringRes val thermalStatusRes: Int = R.string.thermal_status_severe,
     val vulkanDeviceName: String = "",
+    val gpuDiagnosticsSummary: String = "",
+    val lastNativeDiagnostic: String = "",
+    val isSelfTestRunning: Boolean = false,
+    val selfTestResult: NativeSelfTestResult? = null,
     val deviceMemory: DeviceMemorySnapshot = DeviceMemorySnapshot(2048, 4096, 256, false)
 )
 
@@ -44,6 +49,8 @@ class EnhancerQueueRepository(private val appContext: Context) {
         QueueUiState(
             settings = loadSettings(),
             vulkanDeviceName = NativeEnhancer.getVulkanDeviceName(),
+            gpuDiagnosticsSummary = NativeEnhancer.getGpuDiagnosticsSummary(),
+            lastNativeDiagnostic = prefs.getString("last_native_diag", "") ?: "",
             deviceMemory = MemoryEstimator.readDeviceMemory(appContext)
         )
     )
@@ -56,7 +63,12 @@ class EnhancerQueueRepository(private val appContext: Context) {
     private var cancelAllRequested: Boolean = false
 
     fun refreshDeviceMemory() {
-        _state.update { it.copy(deviceMemory = MemoryEstimator.readDeviceMemory(appContext)) }
+        _state.update {
+            it.copy(
+                gpuDiagnosticsSummary = NativeEnhancer.getGpuDiagnosticsSummary(),
+                deviceMemory = MemoryEstimator.readDeviceMemory(appContext)
+            )
+        }
     }
 
     fun updateSettings(transform: (EnhancerSettings) -> EnhancerSettings) {
@@ -67,6 +79,46 @@ class EnhancerQueueRepository(private val appContext: Context) {
                 settings = updated,
                 deviceMemory = MemoryEstimator.readDeviceMemory(appContext)
             )
+        }
+    }
+
+    suspend fun runDiagnosticsSelfTest(): NativeSelfTestResult = withContext(Dispatchers.Default) {
+        _state.update { it.copy(isSelfTestRunning = true) }
+        try {
+            val res = NativeEnhancer.runSelfTest(appContext.assets)
+            saveLastDiagnostic(res.fullLog)
+            val latestGpuSummary = NativeEnhancer.getGpuDiagnosticsSummary()
+            val latestMem = MemoryEstimator.readDeviceMemory(appContext)
+            _state.update {
+                it.copy(
+                    isSelfTestRunning = false,
+                    selfTestResult = res,
+                    lastNativeDiagnostic = res.fullLog,
+                    gpuDiagnosticsSummary = latestGpuSummary,
+                    deviceMemory = latestMem
+                )
+            }
+            res
+        } catch (t: Throwable) {
+            val errMsg = "Self-test exception: ${t.message ?: t::class.java.simpleName}"
+            val failRes = NativeSelfTestResult(
+                vulkanPassed = false,
+                vulkanElapsedMs = 0L,
+                vulkanDetail = errMsg,
+                cpuPassed = false,
+                cpuElapsedMs = 0L,
+                cpuDetail = errMsg,
+                fullLog = errMsg
+            )
+            saveLastDiagnostic(errMsg)
+            _state.update {
+                it.copy(
+                    isSelfTestRunning = false,
+                    selfTestResult = failRes,
+                    lastNativeDiagnostic = errMsg
+                )
+            }
+            failRes
         }
     }
 
@@ -203,6 +255,8 @@ class EnhancerQueueRepository(private val appContext: Context) {
                             status = QueueItemStatus.WAITING,
                             progress = 0,
                             errorKind = QueueErrorKind.NONE,
+                            nativeStatusCode = 0,
+                            fallbackSummary = "",
                             errorDetail = ""
                         )
                     } else {
@@ -223,6 +277,8 @@ class EnhancerQueueRepository(private val appContext: Context) {
                             status = QueueItemStatus.WAITING,
                             progress = 0,
                             errorKind = QueueErrorKind.NONE,
+                            nativeStatusCode = 0,
+                            fallbackSummary = "",
                             errorDetail = ""
                         )
                     } else {
@@ -281,6 +337,8 @@ class EnhancerQueueRepository(private val appContext: Context) {
                 status = QueueItemStatus.RUNNING,
                 progress = 0,
                 errorKind = QueueErrorKind.NONE,
+                nativeStatusCode = 0,
+                fallbackSummary = "",
                 errorDetail = "",
                 usedCpuFallback = false
             )
@@ -326,6 +384,8 @@ class EnhancerQueueRepository(private val appContext: Context) {
         backendUsed: String,
         usedCpuFallback: Boolean,
         finalTileSize: Int,
+        fallbackSummary: String,
+        nativeDiagnostic: String,
         modelUsed: UpscaleModel,
         targetUsed: TargetPreset,
         appliedSettings: EnhancerSettings,
@@ -334,9 +394,14 @@ class EnhancerQueueRepository(private val appContext: Context) {
         if (currentlyRunningId == itemId) {
             currentlyRunningId = null
         }
+        if (nativeDiagnostic.isNotBlank()) {
+            saveLastDiagnostic(nativeDiagnostic)
+        }
         _state.update { cur ->
             cur.copy(
                 deviceMemory = MemoryEstimator.readDeviceMemory(appContext),
+                gpuDiagnosticsSummary = NativeEnhancer.getGpuDiagnosticsSummary(),
+                lastNativeDiagnostic = nativeDiagnostic.ifBlank { cur.lastNativeDiagnostic },
                 items = cur.items.map { item ->
                     if (item.id == itemId) {
                         item.copy(
@@ -350,12 +415,14 @@ class EnhancerQueueRepository(private val appContext: Context) {
                             activeBackend = backendUsed,
                             usedCpuFallback = usedCpuFallback,
                             activeTileSize = finalTileSize,
+                            fallbackSummary = fallbackSummary,
                             modelUsed = modelUsed,
                             targetUsed = targetUsed,
                             appliedSettings = appliedSettings,
                             elapsedSeconds = elapsedSeconds,
                             errorKind = QueueErrorKind.NONE,
-                            errorDetail = ""
+                            nativeStatusCode = 0,
+                            errorDetail = nativeDiagnostic
                         )
                     } else {
                         item
@@ -386,20 +453,30 @@ class EnhancerQueueRepository(private val appContext: Context) {
         itemId: String,
         errorKind: QueueErrorKind,
         errorDetail: String,
-        backendUsed: String = ""
+        backendUsed: String = "",
+        nativeStatusCode: Int = 0,
+        fallbackSummary: String = ""
     ) {
         if (currentlyRunningId == itemId) {
             currentlyRunningId = null
         }
+        if (errorDetail.isNotBlank()) {
+            saveLastDiagnostic(errorDetail)
+        }
         _state.update { cur ->
             cur.copy(
+                deviceMemory = MemoryEstimator.readDeviceMemory(appContext),
+                gpuDiagnosticsSummary = NativeEnhancer.getGpuDiagnosticsSummary(),
+                lastNativeDiagnostic = errorDetail.ifBlank { cur.lastNativeDiagnostic },
                 items = cur.items.map { item ->
                     if (item.id == itemId) {
                         item.copy(
                             status = QueueItemStatus.FAILED,
                             progress = 0,
                             activeBackend = backendUsed.ifBlank { item.activeBackend },
+                            fallbackSummary = fallbackSummary,
                             errorKind = errorKind,
+                            nativeStatusCode = nativeStatusCode,
                             errorDetail = errorDetail
                         )
                     } else {
@@ -408,6 +485,10 @@ class EnhancerQueueRepository(private val appContext: Context) {
                 }
             )
         }
+    }
+
+    private fun saveLastDiagnostic(diag: String) {
+        prefs.edit().putString("last_native_diag", diag).apply()
     }
 
     private fun loadSettings(): EnhancerSettings {
@@ -419,8 +500,10 @@ class EnhancerQueueRepository(private val appContext: Context) {
             TargetPreset.valueOf(prefs.getString("target", TargetPreset.UHD_4K.name)!!)
         }.getOrDefault(TargetPreset.UHD_4K)
 
+        // Verified OFF by default across settings & preferences
         val maxQuality = prefs.getBoolean("max_quality", false)
         val ttaX8 = prefs.getBoolean("tta_x8", false)
+        val safeMode = prefs.getBoolean("safe_mode", false)
         val sharpness = prefs.getInt("sharpness", 0).coerceIn(0, 100)
 
         val format = runCatching {
@@ -444,6 +527,7 @@ class EnhancerQueueRepository(private val appContext: Context) {
             target = target,
             maxQuality = maxQuality,
             ttaX8 = ttaX8,
+            safeMode = safeMode,
             sharpness = sharpness,
             format = format,
             jpegQuality = jpegQuality,
@@ -459,6 +543,7 @@ class EnhancerQueueRepository(private val appContext: Context) {
             .putString("target", s.target.name)
             .putBoolean("max_quality", s.maxQuality)
             .putBoolean("tta_x8", s.ttaX8)
+            .putBoolean("safe_mode", s.safeMode)
             .putInt("sharpness", s.sharpness.coerceIn(0, 100))
             .putString("format", s.format.name)
             .putInt("jpeg_quality", s.jpegQuality.coerceIn(90, 100))

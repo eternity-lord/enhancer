@@ -3,7 +3,6 @@ package com.enhancer.app.util
 import android.app.ActivityManager
 import android.content.Context
 import com.enhancer.app.model.EnhancerSettings
-import com.enhancer.app.model.OutputFormat
 import com.enhancer.app.model.ResolutionPlan
 import com.enhancer.app.model.computeResolutionPlan
 import kotlin.math.max
@@ -52,16 +51,19 @@ object MemoryEstimator {
         settings: EnhancerSettings,
         deviceMem: DeviceMemorySnapshot
     ): ImageRamEstimate {
+        val effMaxQuality = settings.effectiveMaxQuality
+        val effTilePx = settings.effectiveTileSize.effectivePixels
+
         val plan = computeResolutionPlan(
             srcWidth = srcWidth,
             srcHeight = srcHeight,
             model = settings.model,
             target = settings.target,
-            maxQuality = settings.maxQuality
+            maxQuality = effMaxQuality
         )
 
-        val m = settings.model.scale
-        // Source ARGB_8888 bitmap (unlocked immediately after pre-downscale when preDownscaled == true)
+        val m = settings.model.scale.toLong()
+        // Source ARGB_8888 bitmap (unlocked + recycled immediately after pre-downscale when preDownscaled == true)
         val srcBitmapBytes = plan.srcWidth.toLong() * plan.srcHeight.toLong() * 4L
 
         val workRgbBytes = if (plan.preDownscaled) {
@@ -70,30 +72,30 @@ object MemoryEstimator {
             0L
         }
 
-        // v2.0 allocates ONLY `finalOutRgbBytes` plus a single tile-row band buffer (never full modelOut!)
+        // Only ONE full-size output RGB888 buffer (`final_w * final_h * 3`) exists across both JPEG and PNG!
         val finalOutRgbBytes = plan.finalWidth.toLong() * plan.finalHeight.toLong() * 3L
-        val bandOutHeight = ((settings.tileSize.effectivePixels + (if (settings.maxQuality) 16 else 0)) * m).toLong()
-        val bandBytes = if (settings.maxQuality) {
-            // Float band_accum + 32px seam float buffer + RGB emit strip + Lanczos3 ring
-            val floatBand = bandOutHeight * plan.modelOutWidth.toLong() * 3L * 4L
-            val seamBytes = 32L * plan.modelOutWidth.toLong() * 3L * 4L
+        val bandOutHeight = (effTilePx.toLong() + (if (effMaxQuality) 16L else 0L)) * m
+        val bandBytes = if (effMaxQuality) {
+            // Fixed-point uint16_t band_accum_q8 + 32px uint16_t seam + RGB emit strip + Lanczos3 ring
+            val q8Band = bandOutHeight * plan.modelOutWidth.toLong() * 3L * 2L
+            val seamBytes = 32L * plan.modelOutWidth.toLong() * 3L * 2L
             val emitStrip = if (plan.postDownscaled || plan.postUpscaled) {
                 bandOutHeight * plan.modelOutWidth.toLong() * 3L
             } else {
                 0L
             }
-            floatBand + seamBytes + emitStrip + (4L * MB)
+            q8Band + seamBytes + emitStrip + (4L * MB)
         } else if (plan.postUpscaled) {
             bandOutHeight * plan.modelOutWidth.toLong() * 3L + (2L * MB)
         } else {
             0L
         }
 
-        val padPx = if (settings.maxQuality) 64L else 20L
-        val tileSide = settings.tileSize.effectivePixels.toLong() + padPx
+        val padPx = if (effMaxQuality) 64L else 20L
+        val tileSide = effTilePx.toLong() + padPx
         val bytesPerElem = if (settings.disableFp16) 4L else 2L
         val tileWorkspaceBytes = tileSide * tileSide * 64L * bytesPerElem * 6L +
-            (tileSide * m * tileSide * m * 3L * 4L) // planar float RGB tile accumulator
+            (tileSide * m * tileSide * m * 3L * 4L) // per-tile planar float RGB accumulator
         val modelWeightsBytes = settings.model.approxWeightsMb.toLong() * MB *
             (if (settings.disableFp16) 2L else 1L)
 
@@ -107,13 +109,8 @@ object MemoryEstimator {
             srcBitmapBytes + finalOutRgbBytes + bandBytes + modelWeightsBytes + tileWorkspaceBytes
         }
 
-        // Peak during Stage B (final encoding: JPEG 4:4:4 streams directly; PNG allocates compression buffer)
-        val encodeExtraBytes = if (settings.format == OutputFormat.PNG) {
-            finalOutRgbBytes + (16L * MB)
-        } else {
-            8L * MB
-        }
-        val stageB = finalOutRgbBytes + encodeExtraBytes
+        // Peak during Stage B: both 4:4:4 JPEG and zlib PNG stream row-by-row from `final_rgb` with zero full-size copy
+        val stageB = finalOutRgbBytes + (4L * MB)
 
         val peakBytes = max(stageA, stageB)
         val peakMb = ((peakBytes + MB - 1) / MB).toInt().coerceAtLeast(1)

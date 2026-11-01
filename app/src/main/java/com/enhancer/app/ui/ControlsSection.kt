@@ -59,6 +59,7 @@ fun ControlsSection(
     onTargetSelected: (TargetPreset) -> Unit,
     onMaxQualityChanged: (Boolean) -> Unit,
     onTtaX8Changed: (Boolean) -> Unit,
+    onSafeModeChanged: (Boolean) -> Unit,
     onSharpnessChanged: (Int) -> Unit,
     onFormatSelected: (OutputFormat) -> Unit,
     onJpegQualityChanged: (Int) -> Unit,
@@ -197,7 +198,39 @@ fun ControlsSection(
                 HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // 3. Max Quality mode toggle (off by default)
+                // 3. Safe Mode toggle (forces CPU + tile 64 + no Max quality + no TTA)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.label_safe_mode),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = stringResource(R.string.safe_mode_desc),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(
+                        checked = settings.safeMode,
+                        onCheckedChange = onSafeModeChanged,
+                        enabled = enabled
+                    )
+                }
+
+                if (settings.safeMode) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    WarningInlineBox(text = stringResource(R.string.safe_mode_active_banner))
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // 4. Max Quality mode toggle (off by default; locked off in Safe Mode)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -216,15 +249,15 @@ fun ControlsSection(
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Switch(
-                        checked = settings.maxQuality,
+                        checked = settings.effectiveMaxQuality,
                         onCheckedChange = onMaxQualityChanged,
-                        enabled = enabled
+                        enabled = enabled && !settings.safeMode
                     )
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // 4. Optional TTA (x8 Mode) toggle
+                // 5. Optional TTA (x8 Mode) toggle (off by default; locked off in Safe Mode)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -243,13 +276,13 @@ fun ControlsSection(
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Switch(
-                        checked = settings.ttaX8,
+                        checked = settings.effectiveTtaX8,
                         onCheckedChange = onTtaX8Changed,
-                        enabled = enabled
+                        enabled = enabled && !settings.safeMode
                     )
                 }
 
-                if (settings.ttaX8) {
+                if (settings.effectiveTtaX8) {
                     Spacer(modifier = Modifier.height(8.dp))
                     WarningInlineBox(text = stringResource(R.string.warn_tta_slow))
                 }
@@ -337,7 +370,7 @@ fun ControlsSection(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // 7. Tile size
+                // 7. Tile size (locked to 64 px in Safe Mode)
                 SectionLabel(text = stringResource(R.string.label_tile_size))
                 Spacer(modifier = Modifier.height(6.dp))
                 FlowRow(
@@ -351,9 +384,9 @@ fun ControlsSection(
                             stringResource(R.string.tile_px, option.effectivePixels)
                         }
                         FilterChip(
-                            selected = settings.tileSize == option,
+                            selected = settings.effectiveTileSize == option,
                             onClick = { onTileSizeSelected(option) },
-                            enabled = enabled,
+                            enabled = enabled && !settings.safeMode,
                             label = { Text(label) }
                         )
                     }

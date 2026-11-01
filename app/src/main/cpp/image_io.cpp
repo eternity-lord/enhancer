@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
+#include <new>
 #include <unistd.h>
 #include <vector>
+#include <zlib.h>
 
 #if defined(__clang__)
 #pragma clang diagnostic push
@@ -26,8 +29,8 @@ namespace enhancer {
 namespace {
 
 // Full-chroma 4:4:4 JPEG encoder built on stb_image_write's DCT/Huffman primitives.
-// Standard stbi_write_jpg_core switches to 4:2:0 subsampling when quality <= 90;
-// this function enforces 1x1 (0x11) 4:4:4 full chroma across the entire quality range (including 90..100).
+// Enforces 1x1 (0x11) 4:4:4 full chroma across the entire quality range (including 90..100)
+// and streams 8x8 MCUs directly without allocating any intermediate image buffer.
 int write_jpg_full_chroma_444(
     stbi_write_func* func,
     void* context,
@@ -111,7 +114,7 @@ int write_jpg_full_chroma_444(
         1.0f * 2.828427125f, 0.785694958f * 2.828427125f, 0.541196100f * 2.828427125f, 0.275899379f * 2.828427125f
     };
 
-    if (!rgb_data || width <= 0 || height <= 0) {
+    if (!rgb_data || width <= 0 || height <= 0 || width > 65535 || height > 65535) {
         return 0;
     }
 
@@ -312,6 +315,225 @@ void stbi_fd_write_callback(void* context, void* data, int size) {
     writer->append(static_cast<const uint8_t*>(data), static_cast<size_t>(size));
 }
 
+inline void write_u32_be(uint8_t out[4], uint32_t v) noexcept {
+    out[0] = static_cast<uint8_t>((v >> 24) & 0xFFu);
+    out[1] = static_cast<uint8_t>((v >> 16) & 0xFFu);
+    out[2] = static_cast<uint8_t>((v >> 8) & 0xFFu);
+    out[3] = static_cast<uint8_t>(v & 0xFFu);
+}
+
+void write_png_chunk(
+    BufferedFdWriter& writer,
+    const char type[4],
+    const uint8_t* payload,
+    uint32_t payload_len
+) noexcept {
+    uint8_t len_be[4];
+    write_u32_be(len_be, payload_len);
+    writer.append(len_be, 4);
+    writer.append(reinterpret_cast<const uint8_t*>(type), 4);
+    if (payload_len > 0 && payload != nullptr) {
+        writer.append(payload, payload_len);
+    }
+
+    uLong crc = ::crc32(0L, Z_NULL, 0);
+    crc = ::crc32(crc, reinterpret_cast<const Bytef*>(type), 4);
+    if (payload_len > 0 && payload != nullptr) {
+        crc = ::crc32(crc, reinterpret_cast<const Bytef*>(payload), payload_len);
+    }
+    uint8_t crc_be[4];
+    write_u32_be(crc_be, static_cast<uint32_t>(crc));
+    writer.append(crc_be, 4);
+}
+
+inline uint8_t paeth_predictor(int a, int b, int c) noexcept {
+    const int p = a + b - c;
+    const int pa = std::abs(p - a);
+    const int pb = std::abs(p - b);
+    const int pc = std::abs(p - c);
+    if (pa <= pb && pa <= pc) {
+        return static_cast<uint8_t>(a);
+    }
+    if (pb <= pc) {
+        return static_cast<uint8_t>(b);
+    }
+    return static_cast<uint8_t>(c);
+}
+
+// Streams RGB888 rows directly into 64 KB PNG IDAT chunks using zlib.
+// Allocates ONLY two single-row filter buffers (`2 * (width * 3 + 1)` bytes) + 64 KB deflate buffer:
+// ZERO second full-size image buffer!
+bool write_png_streaming_zlib(
+    BufferedFdWriter& writer,
+    const uint8_t* rgb_data,
+    int width,
+    int height,
+    EnhancerStatus& out_status,
+    uint64_t& out_req_bytes,
+    std::string& out_err
+) {
+    size_t row_bytes = 0;
+    if (!checked_mul_size(static_cast<size_t>(width), 3u, row_bytes) ||
+        row_bytes > std::numeric_limits<size_t>::max() - 1u) {
+        out_status = EnhancerStatus::ERR_INVALID_ARGS;
+        out_err = "PNG row stride overflow";
+        return false;
+    }
+    const size_t filtered_len = row_bytes + 1u;
+    constexpr size_t kIdatChunkBytes = 65536u;
+
+    std::vector<uint8_t> cand_sub;
+    std::vector<uint8_t> cand_paeth;
+    std::vector<uint8_t> zbuf;
+    try {
+        out_req_bytes = static_cast<uint64_t>(filtered_len) * 2u + kIdatChunkBytes;
+        cand_sub.resize(filtered_len);
+        cand_paeth.resize(filtered_len);
+        zbuf.resize(kIdatChunkBytes);
+    } catch (const std::bad_alloc&) {
+        out_status = EnhancerStatus::ERR_OUT_OF_MEMORY;
+        out_err = "std::bad_alloc allocating PNG single-row filter scratch buffers";
+        return false;
+    }
+
+    static const uint8_t kPngSig[8] = {137u, 80u, 78u, 71u, 13u, 10u, 26u, 10u};
+    writer.append(kPngSig, sizeof(kPngSig));
+
+    uint8_t ihdr[13];
+    write_u32_be(ihdr + 0, static_cast<uint32_t>(width));
+    write_u32_be(ihdr + 4, static_cast<uint32_t>(height));
+    ihdr[8] = 8u;  // 8 bits per channel
+    ihdr[9] = 2u;  // Truecolor RGB
+    ihdr[10] = 0u; // Deflate compression
+    ihdr[11] = 0u; // Adaptive filtering
+    ihdr[12] = 0u; // Non-interlaced
+    write_png_chunk(writer, "IHDR", ihdr, sizeof(ihdr));
+
+    z_stream strm{};
+    const int init_rc = ::deflateInit2(&strm, 6, Z_DEFLATED, 15, 8, Z_FILTERED);
+    if (init_rc != Z_OK) {
+        if (init_rc == Z_MEM_ERROR) {
+            out_status = EnhancerStatus::ERR_OUT_OF_MEMORY;
+            out_req_bytes = 262144u;
+            out_err = "zlib deflateInit2 failed with Z_MEM_ERROR";
+        } else {
+            out_status = EnhancerStatus::ERR_ENCODE_WRITE;
+            out_err = "zlib deflateInit2 failed with rc=" + std::to_string(init_rc);
+        }
+        return false;
+    }
+
+    strm.next_out = zbuf.data();
+    strm.avail_out = static_cast<uInt>(zbuf.size());
+
+    auto flush_zbuf_if_full = [&]() -> bool {
+        if (strm.avail_out == 0) {
+            write_png_chunk(writer, "IDAT", zbuf.data(), static_cast<uint32_t>(zbuf.size()));
+            if (writer.has_error()) {
+                return false;
+            }
+            strm.next_out = zbuf.data();
+            strm.avail_out = static_cast<uInt>(zbuf.size());
+        }
+        return true;
+    };
+
+    for (int y = 0; y < height; ++y) {
+        const uint8_t* cur = rgb_data + static_cast<size_t>(y) * row_bytes;
+        const uint8_t* prev = (y > 0) ? (cur - row_bytes) : nullptr;
+
+        // Candidate 1: Filter 1 (Sub)
+        cand_sub[0] = 1u;
+        uint64_t score_sub = 0;
+        for (size_t i = 0; i < row_bytes; ++i) {
+            const uint8_t left = (i >= 3u) ? cur[i - 3u] : 0u;
+            const uint8_t d = static_cast<uint8_t>(cur[i] - left);
+            cand_sub[1u + i] = d;
+            score_sub += static_cast<uint64_t>(std::abs(static_cast<int>(static_cast<int8_t>(d))));
+        }
+
+        const uint8_t* chosen = cand_sub.data();
+        if (prev != nullptr) {
+            // Candidate 2: Filter 4 (Paeth) using previous row directly from `rgb_data`
+            cand_paeth[0] = 4u;
+            uint64_t score_paeth = 0;
+            for (size_t i = 0; i < row_bytes; ++i) {
+                const int a = (i >= 3u) ? cur[i - 3u] : 0;
+                const int b = prev[i];
+                const int c = (i >= 3u) ? prev[i - 3u] : 0;
+                const uint8_t d = static_cast<uint8_t>(cur[i] - paeth_predictor(a, b, c));
+                cand_paeth[1u + i] = d;
+                score_paeth += static_cast<uint64_t>(std::abs(static_cast<int>(static_cast<int8_t>(d))));
+            }
+            if (score_paeth < score_sub) {
+                chosen = cand_paeth.data();
+            }
+        }
+
+        size_t rem = filtered_len;
+        const uint8_t* ptr = chosen;
+        while (rem > 0) {
+            const uInt chunk = static_cast<uInt>(std::min<size_t>(rem, 0x40000000u));
+            strm.next_in = const_cast<Bytef*>(ptr);
+            strm.avail_in = chunk;
+            while (strm.avail_in > 0) {
+                const int drc = ::deflate(&strm, Z_NO_FLUSH);
+                if (drc == Z_MEM_ERROR) {
+                    ::deflateEnd(&strm);
+                    out_status = EnhancerStatus::ERR_OUT_OF_MEMORY;
+                    out_err = "zlib deflate failed with Z_MEM_ERROR";
+                    return false;
+                }
+                if (drc == Z_STREAM_ERROR) {
+                    ::deflateEnd(&strm);
+                    out_status = EnhancerStatus::ERR_ENCODE_WRITE;
+                    out_err = "zlib deflate failed with Z_STREAM_ERROR";
+                    return false;
+                }
+                if (!flush_zbuf_if_full()) {
+                    ::deflateEnd(&strm);
+                    out_status = EnhancerStatus::ERR_ENCODE_WRITE;
+                    out_err = std::string("Write to output fd failed during PNG IDAT: ") +
+                        std::strerror(writer.last_errno());
+                    return false;
+                }
+            }
+            ptr += chunk;
+            rem -= chunk;
+        }
+    }
+
+    int finish_rc = Z_OK;
+    while (finish_rc != Z_STREAM_END) {
+        finish_rc = ::deflate(&strm, Z_FINISH);
+        if (finish_rc != Z_OK && finish_rc != Z_STREAM_END) {
+            ::deflateEnd(&strm);
+            out_status = (finish_rc == Z_MEM_ERROR)
+                ? EnhancerStatus::ERR_OUT_OF_MEMORY
+                : EnhancerStatus::ERR_ENCODE_WRITE;
+            out_err = "zlib deflate(Z_FINISH) failed with rc=" + std::to_string(finish_rc);
+            return false;
+        }
+        const size_t have = zbuf.size() - static_cast<size_t>(strm.avail_out);
+        if (have > 0 && (strm.avail_out == 0 || finish_rc == Z_STREAM_END)) {
+            write_png_chunk(writer, "IDAT", zbuf.data(), static_cast<uint32_t>(have));
+            if (writer.has_error()) {
+                ::deflateEnd(&strm);
+                out_status = EnhancerStatus::ERR_ENCODE_WRITE;
+                out_err = std::string("Write to output fd failed flushing PNG IDAT: ") +
+                    std::strerror(writer.last_errno());
+                return false;
+            }
+            strm.next_out = zbuf.data();
+            strm.avail_out = static_cast<uInt>(zbuf.size());
+        }
+    }
+
+    ::deflateEnd(&strm);
+    write_png_chunk(writer, "IEND", nullptr, 0);
+    return !writer.has_error();
+}
+
 } // namespace
 
 bool write_rgb_image_to_fd(
@@ -321,32 +543,85 @@ bool write_rgb_image_to_fd(
     int height,
     ImageFormat format,
     int jpeg_quality,
-    std::string* out_error
+    std::string* out_error,
+    EnhancerStatus* out_status,
+    uint64_t* out_requested_bytes
 ) {
-    if (fd < 0 || !rgb_data || width <= 0 || height <= 0) {
+    if (out_status) {
+        *out_status = EnhancerStatus::OK;
+    }
+    if (out_requested_bytes) {
+        *out_requested_bytes = 0;
+    }
+
+    size_t total_rgb_bytes = 0;
+    if (fd < 0 || !rgb_data || !checked_image_bytes(width, height, 3, total_rgb_bytes)) {
+        if (out_status) {
+            *out_status = EnhancerStatus::ERR_INVALID_ARGS;
+        }
         if (out_error) {
-            *out_error = "Invalid arguments passed to write_rgb_image_to_fd";
+            *out_error = "Invalid arguments or dimensions passed to write_rgb_image_to_fd";
         }
         return false;
     }
 
-    BufferedFdWriter writer(fd);
-    int stbi_ok = 0;
+    std::unique_ptr<BufferedFdWriter> writer_ptr;
+    try {
+        if (out_requested_bytes) {
+            *out_requested_bytes = BufferedFdWriter::kBufferSize;
+        }
+        writer_ptr = std::make_unique<BufferedFdWriter>(fd);
+    } catch (const std::bad_alloc&) {
+        if (out_status) {
+            *out_status = EnhancerStatus::ERR_OUT_OF_MEMORY;
+        }
+        if (out_error) {
+            *out_error = "std::bad_alloc allocating 64 KB BufferedFdWriter";
+        }
+        return false;
+    }
+
+    BufferedFdWriter& writer = *writer_ptr;
 
     if (format == ImageFormat::PNG) {
-        const int stride_bytes = width * 3;
-        stbi_ok = stbi_write_png_to_func(
-            &stbi_fd_write_callback,
-            &writer,
+        EnhancerStatus png_status = EnhancerStatus::OK;
+        uint64_t png_req_bytes = 0;
+        std::string png_err;
+        const bool png_ok = write_png_streaming_zlib(
+            writer,
+            rgb_data,
             width,
             height,
-            3,
-            rgb_data,
-            stride_bytes
+            png_status,
+            png_req_bytes,
+            png_err
         );
+        if (out_requested_bytes && png_req_bytes > 0) {
+            *out_requested_bytes = png_req_bytes;
+        }
+        if (!png_ok) {
+            if (out_status) {
+                *out_status = (png_status != EnhancerStatus::OK)
+                    ? png_status
+                    : EnhancerStatus::ERR_ENCODE_WRITE;
+            }
+            if (out_error) {
+                *out_error = !png_err.empty() ? png_err : "Streaming PNG encoding failed";
+            }
+            return false;
+        }
     } else {
+        if (width > 65535 || height > 65535) {
+            if (out_status) {
+                *out_status = EnhancerStatus::ERR_INVALID_ARGS;
+            }
+            if (out_error) {
+                *out_error = "JPEG dimensions exceed 65535x65535 limit; select PNG or 8K target";
+            }
+            return false;
+        }
         const int clamped_quality = std::clamp(jpeg_quality, 1, 100);
-        stbi_ok = write_jpg_full_chroma_444(
+        const int jpg_ok = write_jpg_full_chroma_444(
             &stbi_fd_write_callback,
             &writer,
             width,
@@ -354,16 +629,24 @@ bool write_rgb_image_to_fd(
             rgb_data,
             clamped_quality
         );
+        if (jpg_ok == 0) {
+            if (out_status) {
+                *out_status = EnhancerStatus::ERR_ENCODE_WRITE;
+            }
+            if (out_error) {
+                *out_error = "4:4:4 JPEG encoder failed";
+            }
+            return false;
+        }
     }
 
     const bool flushed = writer.flush();
-    if (stbi_ok == 0 || !flushed || writer.has_error()) {
+    if (!flushed || writer.has_error()) {
+        if (out_status) {
+            *out_status = EnhancerStatus::ERR_ENCODE_WRITE;
+        }
         if (out_error) {
-            if (writer.has_error()) {
-                *out_error = std::string("Write to output fd failed: ") + std::strerror(writer.last_errno());
-            } else {
-                *out_error = "stb_image_write failed to encode output image (out of memory or invalid image)";
-            }
+            *out_error = std::string("Write to output fd failed: ") + std::strerror(writer.last_errno());
         }
         return false;
     }

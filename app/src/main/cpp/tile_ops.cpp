@@ -1,7 +1,9 @@
 #include "tile_ops.h"
+#include "enhancer_types.h"
 
 #include <algorithm>
 #include <cmath>
+#include <new>
 
 namespace enhancer {
 
@@ -22,7 +24,10 @@ void d4_transform_rgb(
     out_w = transpose ? src_h : src_w;
     out_h = transpose ? src_w : src_h;
 
-    const size_t total_bytes = static_cast<size_t>(out_w) * static_cast<size_t>(out_h) * 3;
+    size_t total_bytes = 0;
+    if (!checked_image_bytes(out_w, out_h, 3, total_bytes)) {
+        throw std::bad_alloc();
+    }
     if (dst_rgb.size() < total_bytes) {
         dst_rgb.resize(total_bytes);
     }
@@ -158,8 +163,14 @@ void apply_adaptive_unsharp_mask_planar(
     // Horizontal blur needs 2 extra rows above and below ROI for the vertical 5-tap pass
     const int ext_y0 = roi_y0 - 2;
     const int ext_h = roi_h + 4;
-    std::vector<float> hblur(static_cast<size_t>(ext_h) * static_cast<size_t>(roi_w));
-    std::vector<float> sharp_out(static_cast<size_t>(roi_h) * static_cast<size_t>(roi_w));
+    size_t hblur_elems = 0;
+    size_t sharp_elems = 0;
+    if (!checked_mul_size(static_cast<size_t>(ext_h), static_cast<size_t>(roi_w), hblur_elems) ||
+        !checked_mul_size(static_cast<size_t>(roi_h), static_cast<size_t>(roi_w), sharp_elems)) {
+        throw std::bad_alloc();
+    }
+    std::vector<float> hblur(hblur_elems);
+    std::vector<float> sharp_out(sharp_elems);
 
     float* planes[3] = {plane_r, plane_g, plane_b};
 

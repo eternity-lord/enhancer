@@ -61,6 +61,9 @@ public:
 
     int next_dst_row() const noexcept { return next_dst_y_; }
     int dst_height() const noexcept { return dst_h_; }
+    uint64_t ring_bytes() const noexcept {
+        return static_cast<uint64_t>(row_ring_.size()) * sizeof(float);
+    }
 
 private:
     struct VarTapSpan {

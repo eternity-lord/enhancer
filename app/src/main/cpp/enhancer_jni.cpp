@@ -10,9 +10,8 @@
 
 #include <atomic>
 #include <exception>
+#include <new>
 #include <string>
-
-#include "gpu.h"
 
 #define LOG_TAG "EnhancerJNI"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -38,15 +37,21 @@ class ScopedBitmapPixels {
 public:
     ScopedBitmapPixels(JNIEnv* env, jobject bitmap) : env_(env), bitmap_(bitmap) {
         if (!env_ || !bitmap_) {
+            fail_reason_ = "JNIEnv or Bitmap is null";
             return;
         }
-        if (AndroidBitmap_getInfo(env_, bitmap_, &info_) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        const int info_rc = AndroidBitmap_getInfo(env_, bitmap_, &info_);
+        if (info_rc != ANDROID_BITMAP_RESULT_SUCCESS) {
+            fail_reason_ = "AndroidBitmap_getInfo rc=" + std::to_string(info_rc);
             return;
         }
         if (info_.format != ANDROID_BITMAP_FORMAT_RGBA_8888) {
+            fail_reason_ = "Bitmap format=" + std::to_string(info_.format) + " (expected RGBA_8888=1)";
             return;
         }
-        if (AndroidBitmap_lockPixels(env_, bitmap_, &pixels_) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        const int lock_rc = AndroidBitmap_lockPixels(env_, bitmap_, &pixels_);
+        if (lock_rc != ANDROID_BITMAP_RESULT_SUCCESS) {
+            fail_reason_ = "AndroidBitmap_lockPixels rc=" + std::to_string(lock_rc);
             pixels_ = nullptr;
         }
     }
@@ -62,18 +67,41 @@ public:
         }
     }
 
+    // Unlocks native pixel pin AND immediately recycles the temporary decoded Java Bitmap
+    // so Android frees the source RGBA heap BEFORE final output buffer / encoding runs.
+    void unlock_and_recycle() noexcept {
+        unlock();
+        if (!recycled_ && env_ && bitmap_) {
+            recycled_ = true;
+            jclass bmp_cls = env_->GetObjectClass(bitmap_);
+            if (bmp_cls) {
+                jmethodID recycle_mid = env_->GetMethodID(bmp_cls, "recycle", "()V");
+                if (recycle_mid) {
+                    env_->CallVoidMethod(bitmap_, recycle_mid);
+                }
+                env_->DeleteLocalRef(bmp_cls);
+                if (env_->ExceptionCheck()) {
+                    env_->ExceptionClear();
+                }
+            }
+        }
+    }
+
     bool valid() const noexcept { return pixels_ != nullptr; }
     uint8_t* mutable_data() const noexcept { return static_cast<uint8_t*>(pixels_); }
     const uint8_t* data() const noexcept { return static_cast<const uint8_t*>(pixels_); }
     int width() const noexcept { return static_cast<int>(info_.width); }
     int height() const noexcept { return static_cast<int>(info_.height); }
     int stride() const noexcept { return static_cast<int>(info_.stride); }
+    const std::string& fail_reason() const noexcept { return fail_reason_; }
 
 private:
     JNIEnv* env_ = nullptr;
     jobject bitmap_ = nullptr;
     AndroidBitmapInfo info_{};
     void* pixels_ = nullptr;
+    bool recycled_ = false;
+    std::string fail_reason_;
 };
 
 jobject build_native_result(JNIEnv* env, const enhancer::UpscaleResult& res) {
@@ -84,7 +112,7 @@ jobject build_native_result(JNIEnv* env, const enhancer::UpscaleResult& res) {
     jmethodID ctor = env->GetMethodID(
         cls,
         "<init>",
-        "(IIILjava/lang/String;ZILjava/lang/String;)V"
+        "(IIILjava/lang/String;ZILjava/lang/String;Ljava/lang/String;)V"
     );
     if (!ctor) {
         env->DeleteLocalRef(cls);
@@ -92,6 +120,7 @@ jobject build_native_result(JNIEnv* env, const enhancer::UpscaleResult& res) {
     }
 
     jstring j_backend = env->NewStringUTF(res.backend_used.c_str());
+    jstring j_fallback = env->NewStringUTF(res.fallback_summary.c_str());
     jstring j_error = env->NewStringUTF(res.error_detail.c_str());
 
     jobject obj = env->NewObject(
@@ -103,11 +132,15 @@ jobject build_native_result(JNIEnv* env, const enhancer::UpscaleResult& res) {
         j_backend,
         static_cast<jboolean>(res.used_cpu_fallback ? JNI_TRUE : JNI_FALSE),
         static_cast<jint>(res.final_tile_size),
+        j_fallback,
         j_error
     );
 
     if (j_backend) {
         env->DeleteLocalRef(j_backend);
+    }
+    if (j_fallback) {
+        env->DeleteLocalRef(j_fallback);
     }
     if (j_error) {
         env->DeleteLocalRef(j_error);
@@ -117,6 +150,10 @@ jobject build_native_result(JNIEnv* env, const enhancer::UpscaleResult& res) {
 }
 
 } // namespace
+
+extern "C" JNIEXPORT void JNICALL JNI_OnUnload(JavaVM* /*vm*/, void* /*reserved*/) {
+    enhancer::shutdown_vulkan_runtime();
+}
 
 extern "C" JNIEXPORT void JNICALL
 Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeResetCancel(
@@ -147,6 +184,128 @@ Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeQueryGpuInfo(
             env->ExceptionClear();
         }
         return env->NewStringUTF("CPU only");
+    }
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeQueryGpuDiagnostics(
+    JNIEnv* env,
+    jobject /*thiz*/
+) {
+    try {
+        const std::string diag = enhancer::query_vulkan_diagnostics_summary();
+        return env->NewStringUTF(diag.c_str());
+    } catch (...) {
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+        return env->NewStringUTF("Vulkan diagnostics unavailable");
+    }
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeRunSelfTest(
+    JNIEnv* env,
+    jobject /*thiz*/,
+    jobject asset_manager_obj
+) {
+    jclass string_cls = env->FindClass("java/lang/String");
+    if (!string_cls) {
+        return nullptr;
+    }
+
+    auto make_array = [&](const std::string items[7]) -> jobjectArray {
+        jstring empty = env->NewStringUTF("");
+        jobjectArray arr = env->NewObjectArray(7, string_cls, empty);
+        if (empty) {
+            env->DeleteLocalRef(empty);
+        }
+        if (!arr) {
+            return nullptr;
+        }
+        for (int i = 0; i < 7; ++i) {
+            jstring s = env->NewStringUTF(items[i].c_str());
+            if (s) {
+                env->SetObjectArrayElement(arr, i, s);
+                env->DeleteLocalRef(s);
+            }
+        }
+        return arr;
+    };
+
+    try {
+        AAssetManager* asset_mgr = AAssetManager_fromJava(env, asset_manager_obj);
+        if (!asset_mgr) {
+            const std::string err = enhancer::format_step_diagnostic(
+                enhancer::EnhancerStatus::ERR_ASSET_LOAD,
+                "AAssetManager_fromJava",
+                0,
+                64,
+                "SelfTest",
+                0,
+                "AAssetManager is null"
+            );
+            const std::string fields[7] = {"FAIL", "0", err, "FAIL", "0", err, err};
+            jobjectArray out = make_array(fields);
+            env->DeleteLocalRef(string_cls);
+            return out;
+        }
+
+        const enhancer::SelfTestReport rep = enhancer::run_native_self_test(asset_mgr);
+        const std::string fields[7] = {
+            rep.vulkan.passed ? "PASS" : "FAIL",
+            std::to_string(rep.vulkan.elapsed_ms),
+            rep.vulkan.detail,
+            rep.cpu.passed ? "PASS" : "FAIL",
+            std::to_string(rep.cpu.elapsed_ms),
+            rep.cpu.detail,
+            rep.full_log
+        };
+        jobjectArray out = make_array(fields);
+        env->DeleteLocalRef(string_cls);
+        return out;
+    } catch (const std::bad_alloc&) {
+        const std::string err = enhancer::format_step_diagnostic(
+            enhancer::EnhancerStatus::ERR_OUT_OF_MEMORY,
+            "std::bad_alloc(nativeRunSelfTest)",
+            0,
+            64,
+            "SelfTest",
+            0,
+            ""
+        );
+        const std::string fields[7] = {"FAIL", "0", err, "FAIL", "0", err, err};
+        jobjectArray out = make_array(fields);
+        env->DeleteLocalRef(string_cls);
+        return out;
+    } catch (const std::exception& ex) {
+        const std::string err = enhancer::format_step_diagnostic(
+            enhancer::EnhancerStatus::ERR_EXCEPTION,
+            "std::exception(nativeRunSelfTest)",
+            0,
+            64,
+            "SelfTest",
+            0,
+            ex.what()
+        );
+        const std::string fields[7] = {"FAIL", "0", err, "FAIL", "0", err, err};
+        jobjectArray out = make_array(fields);
+        env->DeleteLocalRef(string_cls);
+        return out;
+    } catch (...) {
+        const std::string err = enhancer::format_step_diagnostic(
+            enhancer::EnhancerStatus::ERR_EXCEPTION,
+            "unknown_exception(nativeRunSelfTest)",
+            0,
+            64,
+            "SelfTest",
+            0,
+            ""
+        );
+        const std::string fields[7] = {"FAIL", "0", err, "FAIL", "0", err, err};
+        jobjectArray out = make_array(fields);
+        env->DeleteLocalRef(string_cls);
+        return out;
     }
 }
 
@@ -239,6 +398,7 @@ Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeUpscaleImage(
     jboolean disable_fp16,
     jboolean max_quality,
     jboolean tta_x8,
+    jboolean safe_mode,
     jint sharpness,
     jint output_format,
     jint jpeg_quality,
@@ -247,13 +407,23 @@ Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeUpscaleImage(
 ) {
     g_cancel_requested.store(false, std::memory_order_relaxed);
     enhancer::UpscaleResult res;
+    const int req_tile = (safe_mode == JNI_TRUE) ? 64 : (tile_size > 0 ? static_cast<int>(tile_size) : 200);
+    const std::string req_backend = (safe_mode == JNI_TRUE) ? "CPU (Safe mode)" : "Vulkan/CPU";
 
     try {
         AAssetManager* asset_mgr = AAssetManager_fromJava(env, asset_manager_obj);
         if (!asset_mgr) {
             enhancer::UniqueFd close_guard(static_cast<int>(output_fd));
-            res.status = enhancer::EnhancerStatus::ERR_INVALID_ARGS;
-            res.error_detail = "AAssetManager is null";
+            res.status = enhancer::EnhancerStatus::ERR_ASSET_LOAD;
+            res.error_detail = enhancer::format_step_diagnostic(
+                enhancer::EnhancerStatus::ERR_ASSET_LOAD,
+                "AAssetManager_fromJava",
+                0,
+                req_tile,
+                req_backend,
+                0,
+                "AAssetManager is null"
+            );
             return build_native_result(env, res);
         }
 
@@ -261,7 +431,15 @@ Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeUpscaleImage(
         if (!locked_bitmap.valid()) {
             enhancer::UniqueFd close_guard(static_cast<int>(output_fd));
             res.status = enhancer::EnhancerStatus::ERR_BITMAP_LOCK;
-            res.error_detail = "Source Bitmap must be valid ARGB_8888";
+            res.error_detail = enhancer::format_step_diagnostic(
+                enhancer::EnhancerStatus::ERR_BITMAP_LOCK,
+                "AndroidBitmap_lockPixels",
+                0,
+                req_tile,
+                req_backend,
+                0,
+                locked_bitmap.fail_reason()
+            );
             return build_native_result(env, res);
         }
 
@@ -291,6 +469,7 @@ Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeUpscaleImage(
         cfg.disable_fp16 = (disable_fp16 == JNI_TRUE);
         cfg.max_quality = (max_quality == JNI_TRUE);
         cfg.tta_x8 = (tta_x8 == JNI_TRUE);
+        cfg.safe_mode = (safe_mode == JNI_TRUE);
         cfg.sharpness = static_cast<int>(sharpness);
         cfg.format = (output_format == 1)
             ? enhancer::ImageFormat::PNG
@@ -325,27 +504,51 @@ Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeUpscaleImage(
             locked_bitmap.width(),
             locked_bitmap.height(),
             locked_bitmap.stride(),
-            [&]() { locked_bitmap.unlock(); },
+            [&]() { locked_bitmap.unlock_and_recycle(); },
             cfg,
             g_cancel_requested,
             cb
         );
-        locked_bitmap.unlock();
+        locked_bitmap.unlock_and_recycle();
         return build_native_result(env, res);
     } catch (const std::bad_alloc&) {
         LOGE("Caught std::bad_alloc at JNI boundary");
         res.status = enhancer::EnhancerStatus::ERR_OUT_OF_MEMORY;
-        res.error_detail = "Native out of memory (std::bad_alloc)";
+        res.error_detail = enhancer::format_step_diagnostic(
+            enhancer::EnhancerStatus::ERR_OUT_OF_MEMORY,
+            "std::bad_alloc(JNI_boundary)",
+            0,
+            req_tile,
+            req_backend,
+            0,
+            ""
+        );
         return build_native_result(env, res);
     } catch (const std::exception& ex) {
         LOGE("Caught std::exception at JNI boundary: %s", ex.what());
         res.status = enhancer::EnhancerStatus::ERR_EXCEPTION;
-        res.error_detail = std::string("Native exception: ") + ex.what();
+        res.error_detail = enhancer::format_step_diagnostic(
+            enhancer::EnhancerStatus::ERR_EXCEPTION,
+            "std::exception(JNI_boundary)",
+            0,
+            req_tile,
+            req_backend,
+            0,
+            ex.what()
+        );
         return build_native_result(env, res);
     } catch (...) {
         LOGE("Caught unknown exception at JNI boundary");
         res.status = enhancer::EnhancerStatus::ERR_EXCEPTION;
-        res.error_detail = "Unknown native exception";
+        res.error_detail = enhancer::format_step_diagnostic(
+            enhancer::EnhancerStatus::ERR_EXCEPTION,
+            "unknown_exception(JNI_boundary)",
+            0,
+            req_tile,
+            req_backend,
+            0,
+            ""
+        );
         return build_native_result(env, res);
     }
 }
