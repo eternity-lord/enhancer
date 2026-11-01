@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer frame corners -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M30,36V30h10v4H34v6h-4zM68,30h10v10h-4v-6h-6v-4zM30,68h4v6h6v4H30V68zM74,74v-6h4v10H68v-4h6z" />
+    <!-- Four-point AI sparkle star -->
+    <path
+        android:fillColor="#F8FAFC"
+        android:pathData="M54,32L58.5,49.5L76,54L58.5,58.5L54,76L49.5,58.5L32,54L49.5,49.5Z" />
+    <!-- Accent mini sparkle -->
+    <path
+        android:fillColor="#818CF8"
+        android:pathData="M68,38L70,44L76,46L70,48L68,54L66,48L60,46L66,44Z" />
+</vector>
