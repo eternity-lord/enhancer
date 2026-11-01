@@ -148,7 +148,7 @@ class EnhancerForegroundService : Service() {
 
     private fun processSingleItem(item: QueueItem) {
         val repo = appInstance.queueRepository
-        val settings = repo.state.value.settings
+        val settings = item.settingsOverride ?: repo.state.value.settings
         val startElapsedMs = SystemClock.elapsedRealtime()
 
         val allItems = repo.state.value.items
@@ -188,7 +188,8 @@ class EnhancerForegroundService : Service() {
             baseName = item.baseName,
             target = settings.target,
             model = settings.model,
-            format = settings.format
+            format = settings.format,
+            settings = settings
         )
         val pendingOutput = MediaStoreSaver.createPendingOutput(
             context = applicationContext,
@@ -217,8 +218,11 @@ class EnhancerForegroundService : Service() {
                 targetLongSide = settings.target.targetLongSide,
                 tileSize = settings.tileSize.nativeArg,
                 disableFp16 = settings.disableFp16,
+                maxQuality = settings.maxQuality,
+                ttaX8 = settings.ttaX8,
+                sharpness = settings.sharpness,
                 outputFormatCode = settings.format.nativeCode,
-                jpegQuality = 95,
+                jpegQuality = settings.jpegQuality,
                 detachedOutputFd = pendingOutput.detachedFd,
                 onProgressUpdate = { pct, backend, tile ->
                     repo.updateRunningProgress(item.id, pct, backend, tile)
@@ -269,6 +273,7 @@ class EnhancerForegroundService : Service() {
                         finalTileSize = outcome.finalTileSize,
                         modelUsed = settings.model,
                         targetUsed = settings.target,
+                        appliedSettings = settings,
                         elapsedSeconds = elapsedSec
                     )
                 }

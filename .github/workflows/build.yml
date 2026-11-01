@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    name: Build Debug APK (arm64-v8a)
+    name: Build Enhancer v2.0 Debug APK (arm64-v8a)
     runs-on: ubuntu-latest
 
     steps:
@@ -62,9 +62,23 @@ jobs:
             exit 1
           fi
 
-      - name: Upload app-debug.apk artifact
+      - name: Prepare Enhancer-v2.0-debug.apk
+        run: |
+          APK_DIR="app/build/outputs/apk/debug"
+          TARGET_APK="$APK_DIR/Enhancer-v2.0-debug.apk"
+          if [ ! -f "$TARGET_APK" ]; then
+            FOUND_APK="$(find "$APK_DIR" -maxdepth 2 -name '*-debug.apk' | head -n 1)"
+            if [ -z "$FOUND_APK" ]; then
+              echo "::error::No debug APK found under $APK_DIR"
+              exit 1
+            fi
+            mv "$FOUND_APK" "$TARGET_APK"
+          fi
+          ls -lh "$TARGET_APK"
+
+      - name: Upload Enhancer-v2.0-debug artifact
         uses: actions/upload-artifact@v7
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: Enhancer-v2.0-debug
+          path: app/build/outputs/apk/debug/Enhancer-v2.0-debug.apk
           if-no-files-found: error

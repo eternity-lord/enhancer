@@ -104,7 +104,11 @@ enum class AppLanguageMode(val tag: String) {
 data class EnhancerSettings(
     val model: UpscaleModel = UpscaleModel.PHOTO_X4,
     val target: TargetPreset = TargetPreset.UHD_4K,
+    val maxQuality: Boolean = false,
+    val ttaX8: Boolean = false,
+    val sharpness: Int = 0, // 0..100 (0 = off)
     val format: OutputFormat = OutputFormat.JPEG,
+    val jpegQuality: Int = 98, // 90..100, always 4:4:4 full chroma
     val tileSize: TileSizeOption = TileSizeOption.AUTO,
     val disableFp16: Boolean = false,
     val languageMode: AppLanguageMode = AppLanguageMode.SYSTEM
@@ -120,17 +124,24 @@ data class ResolutionPlan(
     val finalWidth: Int,
     val finalHeight: Int,
     val preDownscaled: Boolean,
-    val postUpscaled: Boolean
+    val postUpscaled: Boolean,
+    val postDownscaled: Boolean = false
 )
 
 fun computeResolutionPlan(
     srcWidth: Int,
     srcHeight: Int,
     model: UpscaleModel,
-    target: TargetPreset
+    target: TargetPreset,
+    maxQuality: Boolean = false
 ): ResolutionPlan {
     if (srcWidth <= 0 || srcHeight <= 0) {
-        return ResolutionPlan(0, 0, 0, 0, 0, 0, 0, 0, preDownscaled = false, postUpscaled = false)
+        return ResolutionPlan(
+            0, 0, 0, 0, 0, 0, 0, 0,
+            preDownscaled = false,
+            postUpscaled = false,
+            postDownscaled = false
+        )
     }
     val m = model.scale
     val targetLong = target.targetLongSide
@@ -147,7 +158,36 @@ fun computeResolutionPlan(
             finalWidth = outW,
             finalHeight = outH,
             preDownscaled = false,
-            postUpscaled = false
+            postUpscaled = false,
+            postDownscaled = false
+        )
+    }
+
+    if (maxQuality) {
+        val modelW = srcWidth * m
+        val modelH = srcHeight * m
+        val finalW: Int
+        val finalH: Int
+        if (srcWidth >= srcHeight) {
+            finalW = targetLong
+            finalH = max(1, (srcHeight.toDouble() * targetLong / srcWidth.toDouble()).roundToInt())
+        } else {
+            finalH = targetLong
+            finalW = max(1, (srcWidth.toDouble() * targetLong / srcHeight.toDouble()).roundToInt())
+        }
+        val modelLong = max(modelW, modelH)
+        return ResolutionPlan(
+            srcWidth = srcWidth,
+            srcHeight = srcHeight,
+            workWidth = srcWidth,
+            workHeight = srcHeight,
+            modelOutWidth = modelW,
+            modelOutHeight = modelH,
+            finalWidth = finalW,
+            finalHeight = finalH,
+            preDownscaled = false,
+            postUpscaled = modelLong < targetLong,
+            postDownscaled = modelLong > targetLong
         )
     }
 
@@ -176,7 +216,8 @@ fun computeResolutionPlan(
             finalWidth = outW,
             finalHeight = outH,
             preDownscaled = (workW < srcWidth || workH < srcHeight),
-            postUpscaled = false
+            postUpscaled = false,
+            postDownscaled = false
         )
     } else {
         val modelW = srcWidth * m
@@ -200,7 +241,8 @@ fun computeResolutionPlan(
             finalWidth = finalW,
             finalHeight = finalH,
             preDownscaled = false,
-            postUpscaled = true
+            postUpscaled = true,
+            postDownscaled = false
         )
     }
 }
@@ -234,6 +276,8 @@ data class QueueItem(
     val sourceHeight: Int,
     val exifOrientation: Int,
     val thumbnail: Bitmap?,
+    val settingsOverride: EnhancerSettings? = null,
+    val appliedSettings: EnhancerSettings? = null,
     val status: QueueItemStatus = QueueItemStatus.WAITING,
     val progress: Int = 0,
     val activeBackend: String = "",

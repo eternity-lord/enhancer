@@ -52,60 +52,76 @@ object MemoryEstimator {
         settings: EnhancerSettings,
         deviceMem: DeviceMemorySnapshot
     ): ImageRamEstimate {
-        val plan = computeResolutionPlan(srcWidth, srcHeight, settings.model, settings.target)
+        val plan = computeResolutionPlan(
+            srcWidth = srcWidth,
+            srcHeight = srcHeight,
+            model = settings.model,
+            target = settings.target,
+            maxQuality = settings.maxQuality
+        )
 
-        // Source ARGB_8888 bitmap while locked
+        val m = settings.model.scale
+        // Source ARGB_8888 bitmap (unlocked immediately after pre-downscale when preDownscaled == true)
         val srcBitmapBytes = plan.srcWidth.toLong() * plan.srcHeight.toLong() * 4L
 
-        // Native RGB888 buffers
         val workRgbBytes = if (plan.preDownscaled) {
             plan.workWidth.toLong() * plan.workHeight.toLong() * 3L
         } else {
             0L
         }
-        val modelOutRgbBytes = plan.modelOutWidth.toLong() * plan.modelOutHeight.toLong() * 3L
+
+        // v2.0 allocates ONLY `finalOutRgbBytes` plus a single tile-row band buffer (never full modelOut!)
         val finalOutRgbBytes = plan.finalWidth.toLong() * plan.finalHeight.toLong() * 3L
-
-        // Model weights + single-tile intermediate feature maps
-        val tileSide = (settings.tileSize.effectivePixels + 20).toLong()
-        val bytesPerElem = if (settings.disableFp16) 4L else 2L
-        val tileWorkspaceBytes = tileSide * tileSide * 64L * bytesPerElem * 6L
-        val modelWeightsBytes = settings.model.approxWeightsMb.toLong() * MB *
-            (if (settings.disableFp16) 2L else 1L)
-
-        // Peak during Stage A (tiling inference)
-        val stageA = if (plan.preDownscaled) {
-            max(
-                srcBitmapBytes + workRgbBytes,
-                workRgbBytes + modelOutRgbBytes + modelWeightsBytes + tileWorkspaceBytes
-            )
-        } else {
-            srcBitmapBytes + modelOutRgbBytes + modelWeightsBytes + tileWorkspaceBytes
-        }
-
-        // Peak during Stage B (streaming Lanczos3 when source_long * m < target;
-        // note srcBitmap and ncnn::Net are already released before allocating final_rgb!)
-        val stageB = if (plan.postUpscaled) {
-            modelOutRgbBytes + finalOutRgbBytes + (2L * MB)
+        val bandOutHeight = ((settings.tileSize.effectivePixels + (if (settings.maxQuality) 16 else 0)) * m).toLong()
+        val bandBytes = if (settings.maxQuality) {
+            // Float band_accum + 32px seam float buffer + RGB emit strip + Lanczos3 ring
+            val floatBand = bandOutHeight * plan.modelOutWidth.toLong() * 3L * 4L
+            val seamBytes = 32L * plan.modelOutWidth.toLong() * 3L * 4L
+            val emitStrip = if (plan.postDownscaled || plan.postUpscaled) {
+                bandOutHeight * plan.modelOutWidth.toLong() * 3L
+            } else {
+                0L
+            }
+            floatBand + seamBytes + emitStrip + (4L * MB)
+        } else if (plan.postUpscaled) {
+            bandOutHeight * plan.modelOutWidth.toLong() * 3L + (2L * MB)
         } else {
             0L
         }
 
-        // Peak during Stage C (stb_image_write; PNG allocates an extra compression buffer)
-        val pngExtraBytes = if (settings.format == OutputFormat.PNG) {
+        val padPx = if (settings.maxQuality) 64L else 20L
+        val tileSide = settings.tileSize.effectivePixels.toLong() + padPx
+        val bytesPerElem = if (settings.disableFp16) 4L else 2L
+        val tileWorkspaceBytes = tileSide * tileSide * 64L * bytesPerElem * 6L +
+            (tileSide * m * tileSide * m * 3L * 4L) // planar float RGB tile accumulator
+        val modelWeightsBytes = settings.model.approxWeightsMb.toLong() * MB *
+            (if (settings.disableFp16) 2L else 1L)
+
+        // Peak during Stage A (band-streamed tiled inference)
+        val stageA = if (plan.preDownscaled) {
+            max(
+                srcBitmapBytes + workRgbBytes,
+                workRgbBytes + finalOutRgbBytes + bandBytes + modelWeightsBytes + tileWorkspaceBytes
+            )
+        } else {
+            srcBitmapBytes + finalOutRgbBytes + bandBytes + modelWeightsBytes + tileWorkspaceBytes
+        }
+
+        // Peak during Stage B (final encoding: JPEG 4:4:4 streams directly; PNG allocates compression buffer)
+        val encodeExtraBytes = if (settings.format == OutputFormat.PNG) {
             finalOutRgbBytes + (16L * MB)
         } else {
             8L * MB
         }
-        val stageC = finalOutRgbBytes + pngExtraBytes
+        val stageB = finalOutRgbBytes + encodeExtraBytes
 
-        val peakBytes = max(stageA, max(stageB, stageC))
+        val peakBytes = max(stageA, stageB)
         val peakMb = ((peakBytes + MB - 1) / MB).toInt().coerceAtLeast(1)
 
         val usableAvailMb = (deviceMem.availMb - deviceMem.thresholdMb / 2).coerceAtLeast(128)
         val isTooHigh = deviceMem.isLowMemory ||
-            peakMb > (usableAvailMb * 0.80).toInt() ||
-            peakMb > (deviceMem.totalMb * 0.45).toInt()
+            peakMb > (usableAvailMb * 0.82).toInt() ||
+            peakMb > (deviceMem.totalMb * 0.48).toInt()
 
         return ImageRamEstimate(
             plan = plan,

@@ -3,6 +3,8 @@
     <string name="app_name">Enhancer</string>
     <string name="app_subtitle">افزایش کیفیت آفلاین تصویر با هوش مصنوعی • Real-ESRGAN</string>
     <string name="offline_badge" formatted="false">۱۰۰٪ آفلاین</string>
+    <string name="version_format">نسخه %1$s</string>
+    <string name="author_credit">ساخته شده توسط محمد ایرانی</string>
 
     <!-- Language switcher -->
     <string name="lang_system">خودکار</string>
@@ -40,10 +42,23 @@
     <string name="target_4k">4K (۳۸۴۰ پیکسل)</string>
     <string name="target_8k">8K (۷۶۸۰ پیکسل)</string>
 
+    <!-- v2.0 Quality & Post-processing controls -->
+    <string name="label_max_quality">حداکثر کیفیت (Max Quality)</string>
+    <string name="max_quality_desc">اجرای هوش مصنوعی روی وضوح کامل تصویر اصلی، ترکیب نرم ۳۲ پیکسلی کاشی‌ها و تغییر اندازه Lanczos3 (کندتر)</string>
+    <string name="label_tta_x8">حالت TTA (۸ برابر)</string>
+    <string name="tta_x8_desc">میانگین‌گیری ۸ حالت چرخش و قرینه برای لبه‌های تمیزتر و جزئیات دقیق‌تر</string>
+    <string name="warn_tta_slow">حالت x8 برای هر کاشی ۸ بار مدل را اجرا می‌کند و حدود ۸ برابر زمان بیشتری می‌برد (قابل لغو در هر لحظه).</string>
+
+    <string name="label_sharpness">وضوح و شارپنس</string>
+    <string name="sharpness_off">خاموش</string>
+    <string name="sharpness_value">%1$d</string>
+    <string name="sharpness_desc">شارپنس تطبیقی بدون هاله روی هر کاشی پیش از ترکیب</string>
+
     <string name="label_format">فرمت ذخیره</string>
-    <string name="format_jpeg" formatted="false">JPEG (کیفیت ۹۵٪)</string>
+    <string name="format_jpeg">JPEG (4:4:4)</string>
     <string name="format_png">PNG (بدون افت)</string>
-    <string name="png_slow_huge_warning" formatted="false">ذخیره با فرمت PNG در وضوح بالا بسیار کند است و فایل‌های بسیار حجیمی (۴۰ تا ۹۰ مگابایت در 8K) تولید می‌کند. فرمت JPEG 95% پیشنهاد می‌شود.</string>
+    <string name="label_jpeg_quality">کیفیت JPEG: %1$d%% (رنگ کامل 4:4:4)</string>
+    <string name="png_slow_huge_warning" formatted="false">ذخیره با فرمت PNG در وضوح بالا کندتر است و فایل‌های بسیار حجیمی (۴۰ تا ۹۰ مگابایت در 8K) تولید می‌کند. فرمت JPEG 98% (4:4:4) پیشنهاد می‌شود.</string>
 
     <string name="label_tile_size">اندازه کاشی (Tile)</string>
     <string name="tile_auto">خودکار (۲۰۰)</string>
@@ -64,8 +79,13 @@
     <string name="res_arrow">%1$d × %2$d  ←  %3$d × %4$d</string>
     <string name="est_ram_label">رم تخمینی: ~%1$d مگابایت</string>
     <string name="warn_high_ram">نیاز به رم بالا (~%1$d مگابایت در برابر %2$d مگابایت آزاد). برای جلوگیری از کمبود حافظه، وضوح 4K، فرمت JPEG یا اندازه کاشی کوچک‌تر را انتخاب کنید.</string>
-    <string name="warn_large_source_limited_gain">تصویر اصلی از قبل بزرگ است؛ ابتدا به %1$d × %2$d کوچک شده و سپس پردازش می‌شود، بنابراین افزایش جزئیات هوش مصنوعی محدود خواهد بود.</string>
+    <string name="warn_large_source_limited_gain">تصویر اصلی از قبل بزرگ است؛ در حالت عادی ابتدا به %1$d × %2$d کوچک می‌شود. برای پردازش کامل، گزینه حداکثر کیفیت را فعال کنید.</string>
     <string name="info_post_lanczos">خروجی مدل %1$d × %2$d است و سپس با فیلتر Lanczos3 به %3$d × %4$d تغییر اندازه می‌یابد.</string>
+    <string name="info_max_quality_supersample">حداکثر کیفیت: خروجی کامل %1$d × %2$d تولید و با Lanczos3 به %3$d × %4$d تبدیل می‌شود.</string>
+    <string name="badge_max_quality">حداکثر کیفیت</string>
+    <string name="badge_tta_x8">TTA x8</string>
+    <string name="badge_sharpness">شارپ +%1$d</string>
+    <string name="badge_custom_settings">تنظیمات سفارشی</string>
 
     <!-- Item statuses -->
     <string name="status_waiting">در انتظار</string>
@@ -89,13 +109,22 @@
     <string name="thermal_status_critical">بحرانی</string>
     <string name="thermal_status_emergency">اضطراری</string>
 
-    <!-- Result / Before-After comparison screen -->
-    <string name="result_title">مقایسه قبل و بعد</string>
+    <!-- Result / True Full-Res Deep-Zoom Comparison Screen -->
+    <string name="result_title">مقایسه وضوح واقعی</string>
     <string name="back">بازگشت</string>
-    <string name="label_before">قبل</string>
-    <string name="label_after">بعد</string>
-    <string name="preview_downscaled_note">پیش‌نمایش با مقیاس بهینه حافظه بارگذاری شده است. فایل کامل %1$d × %2$d در پوشه Pictures/Enhancer/%3$s ذخیره شد. برای بزرگ‌نمایی دو انگشتی بکشید و خط میانی را جابه‌جا کنید.</string>
-    <string name="reset_zoom">بازنشانی بزرگ‌نمایی</string>
+    <string name="label_original">اصلی</string>
+    <string name="label_before">اصلی</string>
+    <string name="label_after">ارتقایافته</string>
+    <string name="deep_zoom_fullres_note">نمایشگر کاشی‌بندی‌شده وضوح کامل (%1$d × %2$d ذخیره در Pictures/Enhancer/%3$s). با دو انگشت یا دوبار لمس تا ۱:۱ و ۴۰۰٪ بزرگ‌نمایی کنید.</string>
+    <string name="reset_zoom">جای‌گیری</string>
+    <string name="zoom_one_to_one" formatted="false">1:1</string>
+    <string name="hud_zoom_pct">%1$d%%</string>
+    <string name="filter_bilinear">نرم (Bilinear)</string>
+    <string name="filter_nearest">پیکسلی (Nearest)</string>
+    <string name="btn_reprocess">پردازش مجدد با تنظیمات متفاوت</string>
+    <string name="reprocess_sheet_title">پردازش مجدد تصویر اصلی</string>
+    <string name="reprocess_sheet_subtitle">روی تصویر اصلی %1$d × %2$d اجرا می‌شود و خروجی فعلی شما حفظ خواهد شد.</string>
+    <string name="reprocess_start_btn">شروع پردازش مجدد</string>
     <string name="btn_share">اشتراک‌گذاری</string>
     <string name="btn_open_gallery">باز کردن در گالری</string>
     <string name="backend_ran_label">موتور اجرا: %1$s</string>
@@ -103,6 +132,20 @@
     <string name="share_chooser_title">اشتراک‌گذاری تصویر ارتقایافته</string>
     <string name="error_no_gallery_app">برنامه گالری برای نمایش تصویر یافت نشد.</string>
     <string name="error_no_share_app">برنامه‌ای برای اشتراک‌گذاری تصویر یافت نشد.</string>
+
+    <!-- About / Info Screen -->
+    <string name="about_content_desc">درباره Enhancer</string>
+    <string name="about_title">درباره Enhancer</string>
+    <string name="about_description" formatted="false">برنامه ۱۰۰٪ آفلاین ارتقای کیفیت تصاویر در اندروید با قدرت هوش مصنوعی Real-ESRGAN، موتور ncnn و شتاب‌دهنده Vulkan.</string>
+    <string name="about_whats_new_title">قابلیت‌های جدید نسخه ۲.۰</string>
+    <string name="about_whats_new_1">نمایشگر بزرگ‌نمایی عمیق با وضوح واقعی فایل خروجی (تا ۴ برابر فراتر از ۱:۱) و مقایسه Bicubic با تصویر اصلی</string>
+    <string name="about_whats_new_2">حالت حداکثر کیفیت (Max Quality) با پردازش کامل تصویر، ترکیب ۳۲ پیکسلی کاشی‌ها و Lanczos3</string>
+    <string name="about_whats_new_3">حالت اختیاری TTA (x8) و کنترل شارپنس تطبیقی بدون هاله</string>
+    <string name="about_whats_new_4">خروجی JPEG با رنگ کامل 4:4:4 (کیفیت ۹۰ تا ۱۰۰، پیش‌فرض ۹۸) و پردازش مجدد سریع با تنظیمات متفاوت</string>
+    <string name="about_oss_title">کتابخانه‌های متن‌باز</string>
+    <string name="oss_realesrgan">Real-ESRGAN — مجوز BSD 3-Clause</string>
+    <string name="oss_ncnn">ncnn — مجوز BSD 3-Clause</string>
+    <string name="oss_stb">stb (stb_image / stb_image_write) — مالکیت عمومی / مجوز MIT</string>
 
     <!-- Foreground Service Notification -->
     <string name="notif_channel_name">پیشرفت پردازش Enhancer</string>

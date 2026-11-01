@@ -12,8 +12,8 @@ android {
         applicationId = "com.enhancer.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "2.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -104,3 +104,15 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
+
+tasks.matching { it.name == "assembleDebug" }.configureEach {
+    doLast {
+        val debugApkDir = layout.buildDirectory.dir("outputs/apk/debug").get().asFile
+        val sourceApk = debugApkDir.resolve("app-debug.apk")
+        val renamedApk = debugApkDir.resolve("Enhancer-v2.0-debug.apk")
+        if (sourceApk.exists()) {
+            sourceApk.copyTo(renamedApk, overwrite = true)
+        }
+    }
+}
+

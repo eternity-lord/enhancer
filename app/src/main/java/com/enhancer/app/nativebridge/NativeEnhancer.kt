@@ -3,17 +3,26 @@ package com.enhancer.app.nativebridge
 import android.content.res.AssetManager
 import android.graphics.Bitmap
 
-interface NativeProgressCallback {
+/**
+ * Progress listener invoked from JNI (`onProgress(ILjava/lang/String;I)V`).
+ */
+interface NativeProgressListener {
     fun onProgress(progress: Int, backend: String, tileSize: Int)
-    fun onFinishedMetadata(
-        outWidth: Int,
-        outHeight: Int,
-        backend: String,
-        usedCpuFallback: Boolean,
-        finalTileSize: Int,
-        errorDetail: String
-    )
 }
+
+/**
+ * Constructed directly from C++ (`enhancer_jni.cpp` `build_native_result`).
+ * Constructor signature MUST remain `(IIILjava/lang/String;ZILjava/lang/String;)V`.
+ */
+data class NativeResult(
+    val statusCode: Int,
+    val outWidth: Int,
+    val outHeight: Int,
+    val backendUsed: String,
+    val usedCpuFallback: Boolean,
+    val finalTileSize: Int,
+    val errorDetail: String
+)
 
 enum class NativeStatusCode(val code: Int) {
     OK(0),
@@ -48,29 +57,53 @@ object NativeEnhancer {
         System.loadLibrary("enhancer")
     }
 
-    external fun nativeGetVulkanInfo(): String
-
     external fun nativeResetCancel()
 
     external fun nativeCancel()
 
-    external fun nativeProcessBitmap(
+    external fun nativeQueryGpuInfo(): String
+
+    external fun nativeComputeDimensions(
+        srcW: Int,
+        srcH: Int,
+        modelScale: Int,
+        targetLongSide: Int,
+        maxQuality: Boolean
+    ): IntArray
+
+    external fun nativeResizeBitmapBicubic(
+        srcBitmap: Bitmap,
+        roiX0: Double,
+        roiY0: Double,
+        roiX1: Double,
+        roiY1: Double,
+        dstBitmap: Bitmap
+    ): Boolean
+
+    external fun nativeUpscaleImage(
         assetManager: AssetManager,
-        sourceBitmap: Bitmap,
+        srcBitmap: Bitmap,
         paramAssetPath: String,
         binAssetPath: String,
         modelScale: Int,
         targetLongSide: Int,
         tileSize: Int,
         disableFp16: Boolean,
+        maxQuality: Boolean,
+        ttaX8: Boolean,
+        sharpness: Int,
         outputFormat: Int,
         jpegQuality: Int,
         outputFd: Int,
-        callback: NativeProgressCallback?
-    ): Int
+        progressListener: NativeProgressListener?
+    ): NativeResult?
 
     fun getVulkanDeviceName(): String {
-        return runCatching { nativeGetVulkanInfo().trim() }.getOrDefault("")
+        val raw = runCatching { nativeQueryGpuInfo().trim() }.getOrDefault("")
+        if (raw.isBlank() || raw.equals("CPU only", ignoreCase = true)) {
+            return ""
+        }
+        return raw.removePrefix("Vulkan:").trim()
     }
 
     fun resetCancelFlag() {
@@ -79,6 +112,19 @@ object NativeEnhancer {
 
     fun requestCancel() {
         runCatching { nativeCancel() }
+    }
+
+    fun resizeBitmapBicubic(
+        srcBitmap: Bitmap,
+        roiX0: Double,
+        roiY0: Double,
+        roiX1: Double,
+        roiY1: Double,
+        dstBitmap: Bitmap
+    ): Boolean {
+        return runCatching {
+            nativeResizeBitmapBicubic(srcBitmap, roiX0, roiY0, roiX1, roiY1, dstBitmap)
+        }.getOrDefault(false)
     }
 
     fun processBitmapToFd(
@@ -90,67 +136,63 @@ object NativeEnhancer {
         targetLongSide: Int,
         tileSize: Int,
         disableFp16: Boolean,
+        maxQuality: Boolean,
+        ttaX8: Boolean,
+        sharpness: Int,
         outputFormatCode: Int,
-        jpegQuality: Int = 95,
+        jpegQuality: Int = 98,
         detachedOutputFd: Int,
         onProgressUpdate: (progress: Int, backend: String, tileSize: Int) -> Unit
     ): NativeRunOutcome {
-        var metaWidth = 0
-        var metaHeight = 0
-        var metaBackend = ""
-        var metaFallback = false
-        var metaTile = if (tileSize > 0) tileSize else 200
-        var metaError = ""
+        var latestBackend = ""
+        var latestTile = if (tileSize > 0) tileSize else 200
 
-        val callback = object : NativeProgressCallback {
+        val listener = object : NativeProgressListener {
             override fun onProgress(progress: Int, backend: String, tileSize: Int) {
-                metaBackend = backend
-                metaTile = tileSize
+                latestBackend = backend
+                latestTile = tileSize
                 onProgressUpdate(progress, backend, tileSize)
-            }
-
-            override fun onFinishedMetadata(
-                outWidth: Int,
-                outHeight: Int,
-                backend: String,
-                usedCpuFallback: Boolean,
-                finalTileSize: Int,
-                errorDetail: String
-            ) {
-                metaWidth = outWidth
-                metaHeight = outHeight
-                if (backend.isNotBlank()) {
-                    metaBackend = backend
-                }
-                metaFallback = usedCpuFallback
-                metaTile = finalTileSize
-                metaError = errorDetail
             }
         }
 
-        val rawStatus = nativeProcessBitmap(
+        val res = nativeUpscaleImage(
             assetManager = assetManager,
-            sourceBitmap = sourceBitmap,
+            srcBitmap = sourceBitmap,
             paramAssetPath = paramAssetPath,
             binAssetPath = binAssetPath,
             modelScale = modelScale,
             targetLongSide = targetLongSide,
             tileSize = tileSize,
             disableFp16 = disableFp16,
+            maxQuality = maxQuality,
+            ttaX8 = ttaX8,
+            sharpness = sharpness.coerceIn(0, 100),
             outputFormat = outputFormatCode,
-            jpegQuality = jpegQuality,
+            jpegQuality = jpegQuality.coerceIn(90, 100),
             outputFd = detachedOutputFd,
-            callback = callback
+            progressListener = listener
         )
 
+        if (res == null) {
+            return NativeRunOutcome(
+                status = NativeStatusCode.ERR_EXCEPTION,
+                outWidth = 0,
+                outHeight = 0,
+                backendUsed = latestBackend.ifBlank { "CPU" },
+                usedCpuFallback = false,
+                finalTileSize = latestTile,
+                errorDetail = "JNI returned null NativeResult"
+            )
+        }
+
         return NativeRunOutcome(
-            status = NativeStatusCode.fromCode(rawStatus),
-            outWidth = metaWidth,
-            outHeight = metaHeight,
-            backendUsed = metaBackend.ifBlank { "CPU" },
-            usedCpuFallback = metaFallback,
-            finalTileSize = metaTile,
-            errorDetail = metaError
+            status = NativeStatusCode.fromCode(res.statusCode),
+            outWidth = res.outWidth,
+            outHeight = res.outHeight,
+            backendUsed = res.backendUsed.ifBlank { latestBackend.ifBlank { "CPU" } },
+            usedCpuFallback = res.usedCpuFallback,
+            finalTileSize = if (res.finalTileSize > 0) res.finalTileSize else latestTile,
+            errorDetail = res.errorDetail
         )
     }
 }

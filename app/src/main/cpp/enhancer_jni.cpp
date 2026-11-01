@@ -119,6 +119,14 @@ jobject build_native_result(JNIEnv* env, const enhancer::UpscaleResult& res) {
 } // namespace
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeResetCancel(
+    JNIEnv* /*env*/,
+    jobject /*thiz*/
+) {
+    g_cancel_requested.store(false, std::memory_order_relaxed);
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeCancel(
     JNIEnv* /*env*/,
     jobject /*thiz*/

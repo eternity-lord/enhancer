@@ -1,6 +1,7 @@
 package com.enhancer.app.data
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.annotation.StringRes
 import com.enhancer.app.R
@@ -98,6 +99,37 @@ class EnhancerQueueRepository(private val appContext: Context) {
         }
     }
 
+    /**
+     * Enqueues a fresh run of an existing item's ORIGINAL image (`sourceUri`) with custom settings
+     * without re-picking or deleting the previously saved result.
+     */
+    fun enqueueReprocessItem(sourceItem: QueueItem, customSettings: EnhancerSettings): String {
+        cancelAllRequested = false
+        val newId = UUID.randomUUID().toString()
+        val copiedThumb = sourceItem.thumbnail?.takeIf { !it.isRecycled }?.let { bmp ->
+            runCatching { bmp.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
+        }
+        val reprocessItem = QueueItem(
+            id = newId,
+            sourceUri = sourceItem.sourceUri,
+            displayName = sourceItem.displayName,
+            baseName = sourceItem.baseName,
+            sourceWidth = sourceItem.sourceWidth,
+            sourceHeight = sourceItem.sourceHeight,
+            exifOrientation = sourceItem.exifOrientation,
+            thumbnail = copiedThumb,
+            settingsOverride = customSettings,
+            status = QueueItemStatus.WAITING
+        )
+        _state.update { cur ->
+            cur.copy(
+                items = cur.items + reprocessItem,
+                deviceMemory = MemoryEstimator.readDeviceMemory(appContext)
+            )
+        }
+        return newId
+    }
+
     fun cancelOrRemoveItem(itemId: String) {
         if (currentlyRunningId == itemId) {
             NativeEnhancer.requestCancel()
@@ -123,6 +155,7 @@ class EnhancerQueueRepository(private val appContext: Context) {
                     else it
                 }
             } else {
+                target.thumbnail?.let { bmp -> if (!bmp.isRecycled) bmp.recycle() }
                 cur.items.filterNot { it.id == itemId }
             }
             cur.copy(items = updatedItems)
@@ -295,6 +328,7 @@ class EnhancerQueueRepository(private val appContext: Context) {
         finalTileSize: Int,
         modelUsed: UpscaleModel,
         targetUsed: TargetPreset,
+        appliedSettings: EnhancerSettings,
         elapsedSeconds: Float
     ) {
         if (currentlyRunningId == itemId) {
@@ -318,6 +352,7 @@ class EnhancerQueueRepository(private val appContext: Context) {
                             activeTileSize = finalTileSize,
                             modelUsed = modelUsed,
                             targetUsed = targetUsed,
+                            appliedSettings = appliedSettings,
                             elapsedSeconds = elapsedSeconds,
                             errorKind = QueueErrorKind.NONE,
                             errorDetail = ""
@@ -384,9 +419,15 @@ class EnhancerQueueRepository(private val appContext: Context) {
             TargetPreset.valueOf(prefs.getString("target", TargetPreset.UHD_4K.name)!!)
         }.getOrDefault(TargetPreset.UHD_4K)
 
+        val maxQuality = prefs.getBoolean("max_quality", false)
+        val ttaX8 = prefs.getBoolean("tta_x8", false)
+        val sharpness = prefs.getInt("sharpness", 0).coerceIn(0, 100)
+
         val format = runCatching {
             OutputFormat.valueOf(prefs.getString("format", OutputFormat.JPEG.name)!!)
         }.getOrDefault(OutputFormat.JPEG)
+
+        val jpegQuality = prefs.getInt("jpeg_quality", 98).coerceIn(90, 100)
 
         val tile = runCatching {
             TileSizeOption.valueOf(prefs.getString("tile_size", TileSizeOption.AUTO.name)!!)
@@ -401,7 +442,11 @@ class EnhancerQueueRepository(private val appContext: Context) {
         return EnhancerSettings(
             model = model,
             target = target,
+            maxQuality = maxQuality,
+            ttaX8 = ttaX8,
+            sharpness = sharpness,
             format = format,
+            jpegQuality = jpegQuality,
             tileSize = tile,
             disableFp16 = disableFp16,
             languageMode = lang
@@ -412,7 +457,11 @@ class EnhancerQueueRepository(private val appContext: Context) {
         prefs.edit()
             .putString("model", s.model.name)
             .putString("target", s.target.name)
+            .putBoolean("max_quality", s.maxQuality)
+            .putBoolean("tta_x8", s.ttaX8)
+            .putInt("sharpness", s.sharpness.coerceIn(0, 100))
             .putString("format", s.format.name)
+            .putInt("jpeg_quality", s.jpegQuality.coerceIn(90, 100))
             .putString("tile_size", s.tileSize.name)
             .putBoolean("disable_fp16", s.disableFp16)
             .putString("lang_mode", s.languageMode.name)

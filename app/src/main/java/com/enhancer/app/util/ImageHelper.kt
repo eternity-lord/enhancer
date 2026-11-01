@@ -4,9 +4,11 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.graphics.Rect
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.exifinterface.media.ExifInterface
+import com.enhancer.app.model.EnhancerSettings
 import com.enhancer.app.model.OutputFormat
 import com.enhancer.app.model.TargetPreset
 import com.enhancer.app.model.UpscaleModel
@@ -106,8 +108,7 @@ object ImageHelper {
     }
 
     /**
-     * Memory-safe downscaled decode for previews and Before/After comparison slider
-     * (never decodes a full 4K/8K output bitmap into Java heap).
+     * Memory-safe downscaled decode for thumbnails and low-res base layers.
      */
     fun decodeDownscaledBitmap(
         context: Context,
@@ -172,11 +173,71 @@ object ImageHelper {
         baseName: String,
         target: TargetPreset,
         model: UpscaleModel,
-        format: OutputFormat
+        format: OutputFormat,
+        settings: EnhancerSettings? = null
     ): String {
         val cleanBase = baseName.ifBlank { "image" }
         val targetSlug = target.fileSlug(model.scale)
-        return "${cleanBase}_${targetSlug}_${model.fileSlug}.${format.extension}"
+        val extras = buildString {
+            if (settings?.maxQuality == true) append("_maxQ")
+            if (settings?.ttaX8 == true) append("_tta8")
+            if ((settings?.sharpness ?: 0) > 0) append("_s${settings?.sharpness}")
+        }
+        return "${cleanBase}_${targetSlug}_${model.fileSlug}${extras}.${format.extension}"
+    }
+
+    fun isQuarterTurnOrientation(orientation: Int): Boolean {
+        return orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
+            orientation == ExifInterface.ORIENTATION_ROTATE_270 ||
+            orientation == ExifInterface.ORIENTATION_TRANSPOSE ||
+            orientation == ExifInterface.ORIENTATION_TRANSVERSE
+    }
+
+    /**
+     * Maps a rectangle in EXIF-oriented coordinates `(orientedW x orientedH)` back into
+     * unrotated sensor coordinates `(rawW x rawH)` for `BitmapRegionDecoder.decodeRegion`.
+     */
+    fun mapOrientedRectToRaw(
+        orientedRect: Rect,
+        orientedW: Int,
+        orientedH: Int,
+        rawW: Int,
+        rawH: Int,
+        orientation: Int
+    ): Rect {
+        val l = orientedRect.left.coerceIn(0, orientedW)
+        val t = orientedRect.top.coerceIn(0, orientedH)
+        val r = orientedRect.right.coerceIn(l, orientedW)
+        val b = orientedRect.bottom.coerceIn(t, orientedH)
+
+        val raw = when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 ->
+                Rect(t, rawH - r, b, rawH - l)
+            ExifInterface.ORIENTATION_ROTATE_180 ->
+                Rect(rawW - r, rawH - b, rawW - l, rawH - t)
+            ExifInterface.ORIENTATION_ROTATE_270 ->
+                Rect(rawW - b, l, rawW - t, r)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL ->
+                Rect(rawW - r, t, rawW - l, b)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL ->
+                Rect(l, rawH - b, r, rawH - t)
+            ExifInterface.ORIENTATION_TRANSPOSE ->
+                Rect(t, l, b, r)
+            ExifInterface.ORIENTATION_TRANSVERSE ->
+                Rect(rawW - b, rawH - r, rawW - t, rawH - l)
+            else ->
+                Rect(l, t, r, b)
+        }
+        return Rect(
+            raw.left.coerceIn(0, rawW),
+            raw.top.coerceIn(0, rawH),
+            raw.right.coerceIn(0, rawW),
+            raw.bottom.coerceIn(0, rawH)
+        )
+    }
+
+    fun applyExifToRegionBitmap(bitmap: Bitmap, orientation: Int): Bitmap {
+        return applyExifMatrix(bitmap, orientation)
     }
 
     private fun queryDisplayName(context: Context, uri: Uri): String {
@@ -207,13 +268,6 @@ object ImageHelper {
             .replace(Regex("""\s+"""), "_")
             .trim('_')
         return cleaned.take(64).ifBlank { "image" }
-    }
-
-    private fun isQuarterTurnOrientation(orientation: Int): Boolean {
-        return orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
-            orientation == ExifInterface.ORIENTATION_ROTATE_270 ||
-            orientation == ExifInterface.ORIENTATION_TRANSPOSE ||
-            orientation == ExifInterface.ORIENTATION_TRANSVERSE
     }
 
     private fun applyExifMatrix(bitmap: Bitmap, orientation: Int): Bitmap {
