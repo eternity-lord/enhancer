@@ -1,0 +1,35 @@
+# Gradle & build outputs
+.gradle/
+build/
+**/build/
+out/
+
+# Native build intermediates (keep prebuilt app/src/main/cpp/ncnn-android-vulkan/)
+.cxx/
+app/.cxx/
+.externalNativeBuild/
+app/.externalNativeBuild/
+
+# Android Studio / IntelliJ IDEA
+.idea/
+*.iml
+local.properties
+captures/
+output-metadata.json
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# Keystores & compiled packages
+*.jks
+*.keystore
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Ensure Gradle wrapper JAR is tracked
+!gradle/wrapper/gradle-wrapper.jar
