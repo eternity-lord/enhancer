@@ -27,6 +27,18 @@ inline double lanczos3_kernel(double x) noexcept {
     return sinc(x) * sinc(x / 3.0);
 }
 
+// Catmull-Rom bicubic spline (Keys a = -0.5)
+inline float catmull_rom_weight(float x) noexcept {
+    const float ax = std::abs(x);
+    if (ax < 1.0f) {
+        return (1.5f * ax - 2.5f) * ax * ax + 1.0f;
+    }
+    if (ax < 2.0f) {
+        return ((-0.5f * ax + 2.5f) * ax - 4.0f) * ax + 2.0f;
+    }
+    return 0.0f;
+}
+
 inline uint8_t clamp_float_to_u8(float v) noexcept {
     const float rounded = v + 0.5f;
     if (!(rounded > 0.0f)) {
@@ -44,40 +56,15 @@ struct BoxSpan {
     int weight_offset = 0;
 };
 
-struct LanczosTap6 {
-    int idx[6];
-    float w[6];
-};
-
-std::vector<LanczosTap6> build_lanczos3_taps(int src_len, int dst_len) {
-    std::vector<LanczosTap6> table(static_cast<size_t>(dst_len));
-    const double scale = static_cast<double>(src_len) / static_cast<double>(dst_len);
-
-    for (int d = 0; d < dst_len; ++d) {
-        const double center = (static_cast<double>(d) + 0.5) * scale - 0.5;
-        const int base = static_cast<int>(std::floor(center)) - 2;
-
-        double sum = 0.0;
-        double raw_w[6];
-        for (int k = 0; k < 6; ++k) {
-            const int s = base + k;
-            table[d].idx[k] = std::clamp(s, 0, src_len - 1);
-            const double w = lanczos3_kernel(center - static_cast<double>(s));
-            raw_w[k] = w;
-            sum += w;
-        }
-
-        const double inv_sum = (std::abs(sum) > 1e-12) ? (1.0 / sum) : 0.0;
-        for (int k = 0; k < 6; ++k) {
-            table[d].w[k] = static_cast<float>(raw_w[k] * inv_sum);
-        }
-    }
-    return table;
-}
-
 } // namespace
 
-DimensionPlan compute_dimensions(int src_w, int src_h, int model_scale, int target_long_side) {
+DimensionPlan compute_dimensions(
+    int src_w,
+    int src_h,
+    int model_scale,
+    int target_long_side,
+    bool max_quality
+) {
     DimensionPlan plan;
     plan.src_w = src_w;
     plan.src_h = src_h;
@@ -94,17 +81,48 @@ DimensionPlan compute_dimensions(int src_w, int src_h, int model_scale, int targ
         plan.model_out_h = src_h * model_scale;
         plan.final_w = plan.model_out_w;
         plan.final_h = plan.model_out_h;
+        return plan;
+    }
+
+    if (max_quality) {
+        // Max quality mode: ALWAYS run the model on the full-resolution source (never pre-downscale).
+        plan.work_w = src_w;
+        plan.work_h = src_h;
+        plan.model_out_w = src_w * model_scale;
+        plan.model_out_h = src_h * model_scale;
+
+        if (src_w >= src_h) {
+            plan.final_w = target_long_side;
+            plan.final_h = std::max(
+                1,
+                static_cast<int>(std::lround(static_cast<double>(src_h) * target_long_side / static_cast<double>(src_w)))
+            );
+        } else {
+            plan.final_h = target_long_side;
+            plan.final_w = std::max(
+                1,
+                static_cast<int>(std::lround(static_cast<double>(src_w) * target_long_side / static_cast<double>(src_h)))
+            );
+        }
+
         plan.pre_downscaled = false;
-        plan.post_upscaled = false;
+        const int model_long = std::max(plan.model_out_w, plan.model_out_h);
+        if (model_long > target_long_side) {
+            plan.post_downscaled = true;
+            plan.post_upscaled = false;
+        } else if (model_long < target_long_side) {
+            plan.post_downscaled = false;
+            plan.post_upscaled = true;
+        }
         return plan;
     }
 
     const int src_long = std::max(src_w, src_h);
-    const int64_t native_upscaled_long = static_cast<int64_t>(src_long) * static_cast<int64_t>(model_scale);
+    const int64_t native_upscaled_long =
+        static_cast<int64_t>(src_long) * static_cast<int64_t>(model_scale);
 
     if (native_upscaled_long >= static_cast<int64_t>(target_long_side)) {
-        // Rule 2: source_long * m >= target
-        // Downscale source to (target / m) long side first, then run model once.
+        // Standard Rule 2: source_long * m >= target -> area/box pre-downscale to target / m
         const int work_long = std::max(1, target_long_side / model_scale);
         if (src_w >= src_h) {
             plan.work_w = work_long;
@@ -125,9 +143,9 @@ DimensionPlan compute_dimensions(int src_w, int src_h, int model_scale, int targ
         plan.final_h = plan.model_out_h;
         plan.pre_downscaled = (plan.work_w < src_w || plan.work_h < src_h);
         plan.post_upscaled = false;
+        plan.post_downscaled = false;
     } else {
-        // Rule 3: source_long * m < target
-        // Run model on source at native size, then Lanczos3 upscale to exact target.
+        // Standard Rule 3: source_long * m < target -> native AI pass + Lanczos3 upscale
         plan.work_w = src_w;
         plan.work_h = src_h;
         plan.model_out_w = src_w * model_scale;
@@ -147,6 +165,7 @@ DimensionPlan compute_dimensions(int src_w, int src_h, int model_scale, int targ
         }
         plan.pre_downscaled = false;
         plan.post_upscaled = true;
+        plan.post_downscaled = false;
     }
 
     return plan;
@@ -169,7 +188,6 @@ bool downscale_rgba_to_rgb_box(
         return false;
     }
 
-    // Fast path for exact 1:1 copy
     if (src_w == dst_w && src_h == dst_h) {
         for (int y = 0; y < dst_h; ++y) {
             if ((y & 63) == 0 && cancel_flag.load(std::memory_order_relaxed)) {
@@ -189,7 +207,6 @@ bool downscale_rgba_to_rgb_box(
     const double scale_x = static_cast<double>(src_w) / static_cast<double>(dst_w);
     const double scale_y = static_cast<double>(src_h) / static_cast<double>(dst_h);
 
-    // Precompute horizontal box filter spans & weights
     std::vector<BoxSpan> x_spans(static_cast<size_t>(dst_w));
     std::vector<float> x_weights;
     x_weights.reserve(static_cast<size_t>(src_w + dst_w * 2));
@@ -223,7 +240,6 @@ bool downscale_rgba_to_rgb_box(
         x_spans[static_cast<size_t>(dx)] = span;
     }
 
-    // Precompute vertical box filter spans & weights
     std::vector<BoxSpan> y_spans(static_cast<size_t>(dst_h));
     std::vector<float> y_weights;
     y_weights.reserve(static_cast<size_t>(src_h + dst_h * 2));
@@ -304,7 +320,233 @@ bool downscale_rgba_to_rgb_box(
     return !cancel_flag.load(std::memory_order_relaxed);
 }
 
-bool upscale_rgb_lanczos3_streaming(
+bool StreamingLanczos3Resizer::init(
+    int src_w,
+    int src_h,
+    uint8_t* dst_rgb,
+    int dst_w,
+    int dst_h,
+    std::function<void(int pct_0_to_100)> progress_cb
+) {
+    if (!dst_rgb || src_w <= 0 || src_h <= 0 || dst_w <= 0 || dst_h <= 0) {
+        return false;
+    }
+
+    src_w_ = src_w;
+    src_h_ = src_h;
+    dst_rgb_ = dst_rgb;
+    dst_w_ = dst_w;
+    dst_h_ = dst_h;
+    progress_cb_ = std::move(progress_cb);
+
+    auto build_axis_table = [](
+        int src_len,
+        int dst_len,
+        std::vector<VarTapSpan>& out_spans,
+        std::vector<float>& out_weights,
+        int& out_max_taps
+    ) {
+        out_spans.resize(static_cast<size_t>(dst_len));
+        out_weights.clear();
+
+        const double scale = static_cast<double>(src_len) / static_cast<double>(dst_len);
+        // For downscaling (scale > 1), widen kernel support by `scale` for proper anti-aliasing.
+        const double filter_scale = std::max(1.0, scale);
+        const double support = 3.0 * filter_scale;
+
+        out_weights.reserve(static_cast<size_t>(dst_len) * static_cast<size_t>(std::ceil(support * 2.0) + 2));
+        out_max_taps = 1;
+
+        std::vector<double> folded;
+        for (int d = 0; d < dst_len; ++d) {
+            const double center = (static_cast<double>(d) + 0.5) * scale - 0.5;
+            const int raw_lo = static_cast<int>(std::ceil(center - support));
+            const int raw_hi = static_cast<int>(std::floor(center + support));
+
+            const int clamped_lo = std::clamp(raw_lo, 0, src_len - 1);
+            const int clamped_hi = std::clamp(raw_hi, clamped_lo, src_len - 1);
+            const int span_count = clamped_hi - clamped_lo + 1;
+            out_max_taps = std::max(out_max_taps, span_count);
+
+            folded.assign(static_cast<size_t>(span_count), 0.0);
+            double sum = 0.0;
+            for (int s = raw_lo; s <= raw_hi; ++s) {
+                const double w = lanczos3_kernel((center - static_cast<double>(s)) / filter_scale);
+                const int cs = std::clamp(s, 0, src_len - 1);
+                folded[static_cast<size_t>(cs - clamped_lo)] += w;
+                sum += w;
+            }
+
+            VarTapSpan span;
+            span.start_idx = clamped_lo;
+            span.count = span_count;
+            span.weight_offset = static_cast<int>(out_weights.size());
+
+            const double inv = (std::abs(sum) > 1e-12) ? (1.0 / sum) : 0.0;
+            for (int i = 0; i < span_count; ++i) {
+                out_weights.push_back(static_cast<float>(folded[static_cast<size_t>(i)] * inv));
+            }
+            out_spans[static_cast<size_t>(d)] = span;
+        }
+    };
+
+    int max_x_taps = 0;
+    int max_y_taps = 0;
+    build_axis_table(src_w_, dst_w_, x_spans_, x_weights_, max_x_taps);
+    build_axis_table(src_h_, dst_h_, y_spans_, y_weights_, max_y_taps);
+
+    // Next power-of-two >= max_y_taps + 2 so modulo masking never collides within any output row's window
+    ring_slots_ = 8;
+    while (ring_slots_ < max_y_taps + 2) {
+        ring_slots_ *= 2;
+    }
+
+    row_floats_ = static_cast<size_t>(dst_w_) * 3;
+    row_ring_.assign(static_cast<size_t>(ring_slots_) * row_floats_, 0.0f);
+    slot_sy_.assign(static_cast<size_t>(ring_slots_), -1);
+
+    reset_stream();
+    return true;
+}
+
+void StreamingLanczos3Resizer::reset_stream() {
+    pushed_src_rows_ = 0;
+    next_dst_y_ = 0;
+    last_reported_pct_ = -1;
+    std::fill(slot_sy_.begin(), slot_sy_.end(), -1);
+}
+
+void StreamingLanczos3Resizer::compute_horizontal_row(const uint8_t* src_row, int sy) {
+    const int slot = sy & (ring_slots_ - 1);
+    float* slot_ptr = row_ring_.data() + static_cast<size_t>(slot) * row_floats_;
+
+    #pragma omp parallel for schedule(static)
+    for (int dx = 0; dx < dst_w_; ++dx) {
+        const VarTapSpan& span = x_spans_[static_cast<size_t>(dx)];
+        const float* w_ptr = x_weights_.data() + span.weight_offset;
+        const uint8_t* spx_base = src_row + static_cast<size_t>(span.start_idx) * 3;
+
+        float r = 0.0f;
+        float g = 0.0f;
+        float b = 0.0f;
+        for (int k = 0; k < span.count; ++k) {
+            const float w = w_ptr[k];
+            const uint8_t* spx = spx_base + static_cast<size_t>(k) * 3;
+            r += static_cast<float>(spx[0]) * w;
+            g += static_cast<float>(spx[1]) * w;
+            b += static_cast<float>(spx[2]) * w;
+        }
+        slot_ptr[static_cast<size_t>(dx) * 3 + 0] = r;
+        slot_ptr[static_cast<size_t>(dx) * 3 + 1] = g;
+        slot_ptr[static_cast<size_t>(dx) * 3 + 2] = b;
+    }
+
+    slot_sy_[static_cast<size_t>(slot)] = sy;
+}
+
+bool StreamingLanczos3Resizer::push_source_rows(
+    const uint8_t* src_rows_rgb,
+    int row_count,
+    const std::atomic<bool>& cancel_flag
+) {
+    if (!src_rows_rgb || row_count <= 0) {
+        return row_count == 0;
+    }
+
+    // Fast 1:1 identity copy path
+    if (src_w_ == dst_w_ && src_h_ == dst_h_) {
+        const int copy_rows = std::min(row_count, dst_h_ - next_dst_y_);
+        if (copy_rows > 0) {
+            std::memcpy(
+                dst_rgb_ + static_cast<size_t>(next_dst_y_) * row_floats_,
+                src_rows_rgb,
+                static_cast<size_t>(copy_rows) * row_floats_
+            );
+            next_dst_y_ += copy_rows;
+            pushed_src_rows_ += copy_rows;
+            if (progress_cb_) {
+                const int pct = static_cast<int>((static_cast<int64_t>(next_dst_y_) * 100) / dst_h_);
+                if (pct != last_reported_pct_) {
+                    last_reported_pct_ = pct;
+                    progress_cb_(pct);
+                }
+            }
+        }
+        return !cancel_flag.load(std::memory_order_relaxed);
+    }
+
+    const size_t src_row_bytes = static_cast<size_t>(src_w_) * 3;
+    std::vector<const float*> active_hrows;
+
+    for (int r = 0; r < row_count && pushed_src_rows_ < src_h_; ++r) {
+        if ((r & 15) == 0 && cancel_flag.load(std::memory_order_relaxed)) {
+            return false;
+        }
+
+        const int sy = pushed_src_rows_;
+        // Only compute horizontal resample for `sy` if at least one remaining output row actually uses it
+        bool needed = false;
+        if (next_dst_y_ < dst_h_) {
+            const VarTapSpan& cur_y = y_spans_[static_cast<size_t>(next_dst_y_)];
+            if (sy >= cur_y.start_idx) {
+                needed = true;
+            }
+        }
+        if (needed) {
+            compute_horizontal_row(src_rows_rgb + static_cast<size_t>(r) * src_row_bytes, sy);
+        }
+        ++pushed_src_rows_;
+
+        // Emit all output rows `dy` whose vertical tap window is now fully available
+        while (next_dst_y_ < dst_h_) {
+            const VarTapSpan& yspan = y_spans_[static_cast<size_t>(next_dst_y_)];
+            const int max_needed_sy = yspan.start_idx + yspan.count - 1;
+            if (max_needed_sy >= pushed_src_rows_) {
+                break;
+            }
+
+            if ((next_dst_y_ & 31) == 0 && cancel_flag.load(std::memory_order_relaxed)) {
+                return false;
+            }
+
+            active_hrows.resize(static_cast<size_t>(yspan.count));
+            for (int k = 0; k < yspan.count; ++k) {
+                const int needed_sy = yspan.start_idx + k;
+                const int slot = needed_sy & (ring_slots_ - 1);
+                active_hrows[static_cast<size_t>(k)] =
+                    row_ring_.data() + static_cast<size_t>(slot) * row_floats_;
+            }
+
+            const float* wy_ptr = y_weights_.data() + yspan.weight_offset;
+            const int tap_count = yspan.count;
+            const float* const* hrows_ptr = active_hrows.data();
+            uint8_t* out_row = dst_rgb_ + static_cast<size_t>(next_dst_y_) * row_floats_;
+
+            #pragma omp parallel for schedule(static)
+            for (size_t i = 0; i < row_floats_; ++i) {
+                float acc = 0.0f;
+                for (int k = 0; k < tap_count; ++k) {
+                    acc += hrows_ptr[k][i] * wy_ptr[k];
+                }
+                out_row[i] = clamp_float_to_u8(acc);
+            }
+
+            ++next_dst_y_;
+
+            if (progress_cb_ && ((next_dst_y_ & 63) == 0 || next_dst_y_ == dst_h_)) {
+                const int pct = static_cast<int>((static_cast<int64_t>(next_dst_y_) * 100) / dst_h_);
+                if (pct != last_reported_pct_) {
+                    last_reported_pct_ = pct;
+                    progress_cb_(pct);
+                }
+            }
+        }
+    }
+
+    return !cancel_flag.load(std::memory_order_relaxed);
+}
+
+bool resize_rgb_lanczos3_streaming(
     const uint8_t* src_rgb,
     int src_w,
     int src_h,
@@ -317,99 +559,118 @@ bool upscale_rgb_lanczos3_streaming(
     if (!src_rgb || !dst_rgb || src_w <= 0 || src_h <= 0 || dst_w <= 0 || dst_h <= 0) {
         return false;
     }
+    StreamingLanczos3Resizer resizer;
+    if (!resizer.init(src_w, src_h, dst_rgb, dst_w, dst_h, progress_cb)) {
+        return false;
+    }
+    return resizer.push_source_rows(src_rgb, src_h, cancel_flag) &&
+           resizer.next_dst_row() == dst_h;
+}
 
-    if (src_w == dst_w && src_h == dst_h) {
-        std::memcpy(dst_rgb, src_rgb, static_cast<size_t>(dst_w) * static_cast<size_t>(dst_h) * 3);
-        if (progress_cb) {
-            progress_cb(100);
-        }
-        return true;
+bool resize_rgba_roi_bicubic(
+    const uint8_t* src_rgba,
+    int src_w,
+    int src_h,
+    int src_stride_bytes,
+    double roi_x0,
+    double roi_y0,
+    double roi_x1,
+    double roi_y1,
+    uint8_t* dst_rgba,
+    int dst_w,
+    int dst_h,
+    int dst_stride_bytes
+) {
+    if (!src_rgba || !dst_rgba ||
+        src_w <= 0 || src_h <= 0 || dst_w <= 0 || dst_h <= 0 ||
+        src_stride_bytes < src_w * 4 || dst_stride_bytes < dst_w * 4) {
+        return false;
     }
 
-    const std::vector<LanczosTap6> x_taps = build_lanczos3_taps(src_w, dst_w);
-    const std::vector<LanczosTap6> y_taps = build_lanczos3_taps(src_h, dst_h);
-
-    // 8-slot rolling horizontal row cache:
-    // Because vertical Lanczos3 uses at most 6 monotonically advancing source rows (sy0..sy0+5),
-    // modulo-8 indexing never collides within any single output row's 6-tap window.
-    constexpr int kCacheSlots = 8;
-    const size_t row_floats = static_cast<size_t>(dst_w) * 3;
-    std::vector<float> row_cache(static_cast<size_t>(kCacheSlots) * row_floats, 0.0f);
-    int cached_sy[kCacheSlots];
-    for (int i = 0; i < kCacheSlots; ++i) {
-        cached_sy[i] = -1;
+    const double roi_w = roi_x1 - roi_x0;
+    const double roi_h = roi_y1 - roi_y0;
+    if (roi_w <= 0.0 || roi_h <= 0.0) {
+        return false;
     }
 
-    auto ensure_horizontal_row = [&](int sy) -> const float* {
-        const int slot = sy & (kCacheSlots - 1);
-        float* slot_ptr = row_cache.data() + static_cast<size_t>(slot) * row_floats;
-        if (cached_sy[slot] == sy) {
-            return slot_ptr;
+    struct CubicTap4 {
+        int idx[4];
+        float w[4];
+    };
+
+    std::vector<CubicTap4> x_taps(static_cast<size_t>(dst_w));
+    for (int dx = 0; dx < dst_w; ++dx) {
+        const double sx = roi_x0 + (static_cast<double>(dx) + 0.5) * (roi_w / static_cast<double>(dst_w)) - 0.5;
+        const int base = static_cast<int>(std::floor(sx)) - 1;
+        float sum = 0.0f;
+        for (int k = 0; k < 4; ++k) {
+            const int idx = std::clamp(base + k, 0, src_w - 1);
+            const float w = catmull_rom_weight(static_cast<float>(sx - static_cast<double>(base + k)));
+            x_taps[static_cast<size_t>(dx)].idx[k] = idx;
+            x_taps[static_cast<size_t>(dx)].w[k] = w;
+            sum += w;
         }
+        const float inv = (std::abs(sum) > 1e-6f) ? (1.0f / sum) : 1.0f;
+        for (int k = 0; k < 4; ++k) {
+            x_taps[static_cast<size_t>(dx)].w[k] *= inv;
+        }
+    }
 
-        const uint8_t* srow = src_rgb + static_cast<size_t>(sy) * static_cast<size_t>(src_w) * 3;
+    std::vector<CubicTap4> y_taps(static_cast<size_t>(dst_h));
+    for (int dy = 0; dy < dst_h; ++dy) {
+        const double sy = roi_y0 + (static_cast<double>(dy) + 0.5) * (roi_h / static_cast<double>(dst_h)) - 0.5;
+        const int base = static_cast<int>(std::floor(sy)) - 1;
+        float sum = 0.0f;
+        for (int k = 0; k < 4; ++k) {
+            const int idx = std::clamp(base + k, 0, src_h - 1);
+            const float w = catmull_rom_weight(static_cast<float>(sy - static_cast<double>(base + k)));
+            y_taps[static_cast<size_t>(dy)].idx[k] = idx;
+            y_taps[static_cast<size_t>(dy)].w[k] = w;
+            sum += w;
+        }
+        const float inv = (std::abs(sum) > 1e-6f) ? (1.0f / sum) : 1.0f;
+        for (int k = 0; k < 4; ++k) {
+            y_taps[static_cast<size_t>(dy)].w[k] *= inv;
+        }
+    }
 
-        #pragma omp parallel for schedule(static)
+    #pragma omp parallel for schedule(static)
+    for (int dy = 0; dy < dst_h; ++dy) {
+        const CubicTap4& ytap = y_taps[static_cast<size_t>(dy)];
+        const uint8_t* srows[4] = {
+            src_rgba + static_cast<size_t>(ytap.idx[0]) * static_cast<size_t>(src_stride_bytes),
+            src_rgba + static_cast<size_t>(ytap.idx[1]) * static_cast<size_t>(src_stride_bytes),
+            src_rgba + static_cast<size_t>(ytap.idx[2]) * static_cast<size_t>(src_stride_bytes),
+            src_rgba + static_cast<size_t>(ytap.idx[3]) * static_cast<size_t>(src_stride_bytes),
+        };
+        uint8_t* drow = dst_rgba + static_cast<size_t>(dy) * static_cast<size_t>(dst_stride_bytes);
+
         for (int dx = 0; dx < dst_w; ++dx) {
-            const LanczosTap6& tap = x_taps[static_cast<size_t>(dx)];
+            const CubicTap4& xtap = x_taps[static_cast<size_t>(dx)];
             float r = 0.0f;
             float g = 0.0f;
             float b = 0.0f;
-            for (int k = 0; k < 6; ++k) {
-                const uint8_t* spx = srow + static_cast<size_t>(tap.idx[k]) * 3;
-                const float w = tap.w[k];
-                r += static_cast<float>(spx[0]) * w;
-                g += static_cast<float>(spx[1]) * w;
-                b += static_cast<float>(spx[2]) * w;
+            for (int ky = 0; ky < 4; ++ky) {
+                const float wy = ytap.w[ky];
+                const uint8_t* sr = srows[ky];
+                float rr = 0.0f;
+                float gg = 0.0f;
+                float bb = 0.0f;
+                for (int kx = 0; kx < 4; ++kx) {
+                    const float wx = xtap.w[kx];
+                    const uint8_t* px = sr + static_cast<size_t>(xtap.idx[kx]) * 4;
+                    rr += static_cast<float>(px[0]) * wx;
+                    gg += static_cast<float>(px[1]) * wx;
+                    bb += static_cast<float>(px[2]) * wx;
+                }
+                r += rr * wy;
+                g += gg * wy;
+                b += bb * wy;
             }
-            slot_ptr[static_cast<size_t>(dx) * 3 + 0] = r;
-            slot_ptr[static_cast<size_t>(dx) * 3 + 1] = g;
-            slot_ptr[static_cast<size_t>(dx) * 3 + 2] = b;
-        }
-
-        cached_sy[slot] = sy;
-        return slot_ptr;
-    };
-
-    int last_reported_pct = -1;
-    for (int dy = 0; dy < dst_h; ++dy) {
-        if ((dy & 31) == 0 && cancel_flag.load(std::memory_order_relaxed)) {
-            return false;
-        }
-
-        const LanczosTap6& ytap = y_taps[static_cast<size_t>(dy)];
-        const float* hrows[6];
-        for (int k = 0; k < 6; ++k) {
-            hrows[k] = ensure_horizontal_row(ytap.idx[k]);
-        }
-
-        const float wy0 = ytap.w[0];
-        const float wy1 = ytap.w[1];
-        const float wy2 = ytap.w[2];
-        const float wy3 = ytap.w[3];
-        const float wy4 = ytap.w[4];
-        const float wy5 = ytap.w[5];
-
-        uint8_t* out_row = dst_rgb + static_cast<size_t>(dy) * row_floats;
-
-        #pragma omp parallel for schedule(static)
-        for (size_t i = 0; i < row_floats; ++i) {
-            const float val =
-                hrows[0][i] * wy0 +
-                hrows[1][i] * wy1 +
-                hrows[2][i] * wy2 +
-                hrows[3][i] * wy3 +
-                hrows[4][i] * wy4 +
-                hrows[5][i] * wy5;
-            out_row[i] = clamp_float_to_u8(val);
-        }
-
-        if (progress_cb && ((dy & 63) == 0 || dy + 1 == dst_h)) {
-            const int pct = static_cast<int>((static_cast<int64_t>(dy + 1) * 100) / dst_h);
-            if (pct != last_reported_pct) {
-                last_reported_pct = pct;
-                progress_cb(pct);
-            }
+            drow[dx * 4 + 0] = clamp_float_to_u8(r);
+            drow[dx * 4 + 1] = clamp_float_to_u8(g);
+            drow[dx * 4 + 2] = clamp_float_to_u8(b);
+            drow[dx * 4 + 3] = 255;
         }
     }
 

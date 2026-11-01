@@ -2,7 +2,6 @@
 #define ENHANCER_UPSCALER_H
 
 #include "enhancer_types.h"
-#include "image_io.h"
 
 #include <android/asset_manager.h>
 #include <atomic>
@@ -11,27 +10,23 @@
 
 namespace enhancer {
 
-// Queries Vulkan availability and GPU device name (empty string if no Vulkan GPU is available).
+// Thread-safely queries Vulkan GPU availability and device name.
 std::string query_vulkan_device_info();
 
-// Releases global ncnn Vulkan instance on library unload.
-void shutdown_vulkan_instance();
-
-// Executes the full native upscale + resize + encode pipeline:
-// 1. Pre-downscales with area/box filter if source_long * m >= target (when work_size < src_size).
-// 2. Runs tiled Real-ESRGAN inference via ncnn (Vulkan fp16 by default, auto tile-halving down to 48,
-//    automatic CPU fallback if Vulkan is unavailable or fails mid-run).
-// 3. Post-upscales with streaming row-by-row Lanczos3 if source_long * m < target.
-// 4. Encodes RGB888 to JPEG (q=95) or PNG into `fd_guard` via stb_image_write callback.
+// Executes the full v2.0 native upscale + post-process + streaming resize + encode pipeline:
+// - Standard mode: area/box pre-downscale when src*m >= target, 10px prepad, optional TTA x8 + unsharp mask.
+// - Max Quality mode: full-res source (never pre-downscaled), 32px reflection prepad + 32px linear feathered
+//   overlap blending, optional TTA x8 + per-tile adaptive unsharp mask, and band-by-band streaming Lanczos3
+//   supersampling downscale/upscale.
+// - Encodes packed RGB888 to 4:4:4 full-chroma JPEG (90..100, default 98) or lossless PNG directly to `config.output_fd`.
 UpscaleResult run_upscale_pipeline(
-    AAssetManager* asset_mgr,
+    AAssetManager* asset_manager,
     const uint8_t* src_rgba,
     int src_w,
     int src_h,
     int src_stride_bytes,
     const std::function<void()>& unlock_bitmap_fn,
-    const UpscaleConfig& cfg,
-    UniqueFd fd_guard,
+    const UpscaleConfig& config,
     const std::atomic<bool>& cancel_flag,
     const ProgressCallback& progress_cb
 );

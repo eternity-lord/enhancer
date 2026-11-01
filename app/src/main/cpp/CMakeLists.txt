@@ -21,6 +21,7 @@ endif()
 add_library(enhancer SHARED
     enhancer_jni.cpp
     upscaler.cpp
+    tile_ops.cpp
     resizer.cpp
     image_io.cpp
 )

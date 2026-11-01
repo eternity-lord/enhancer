@@ -53,6 +53,11 @@ struct DimensionPlan {
     int final_h = 0;
     bool pre_downscaled = false;
     bool post_upscaled = false;
+    bool post_downscaled = false;
+
+    bool needs_post_resize() const noexcept {
+        return post_upscaled || post_downscaled;
+    }
 };
 
 struct UpscaleConfig {
@@ -62,8 +67,11 @@ struct UpscaleConfig {
     int target_long_side = 0;      // 0 = Native xN, 3840 = 4K, 7680 = 8K
     int requested_tile_size = 200; // <= 0 means default 200; minimum 48
     bool disable_fp16 = false;
+    bool max_quality = false;      // Full-res inference + 32px feathered tiles + Lanczos3 supersampling
+    bool tta_x8 = false;           // 8x flip/rotate Test-Time Augmentation
+    int sharpness = 0;             // 0..100 adaptive halo-clamped unsharp mask
     ImageFormat format = ImageFormat::JPEG;
-    int jpeg_quality = 95;
+    int jpeg_quality = 98;         // 90..100 (default 98), always 4:4:4 full chroma
     int output_fd = -1;
 };
 
