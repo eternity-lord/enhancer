@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Enhancer</string>
+    <string name="app_subtitle">Offline AI Image Upscaler • Real-ESRGAN</string>
+    <string name="offline_badge">100% Offline</string>
+
+    <!-- Language switcher -->
+    <string name="lang_system">Auto</string>
+    <string name="lang_en">EN</string>
+    <string name="lang_fa">فارسی</string>
+
+    <!-- Device & GPU banner -->
+    <string name="gpu_detected">GPU: %1$s</string>
+    <string name="gpu_unavailable_cpu">No Vulkan GPU detected • Using CPU</string>
+    <string name="device_ram_summary">Free RAM: %1$d MB / %2$d MB</string>
+
+    <!-- Image pickers -->
+    <string name="pick_photos">Pick Photos</string>
+    <string name="browse_files">Browse Files</string>
+    <string name="clear_finished">Clear Finished</string>
+    <string name="empty_queue_title">No images selected yet</string>
+    <string name="empty_queue_body">Select one or multiple photos to upscale up to 4K or 8K completely offline on your device.</string>
+
+    <!-- Controls section -->
+    <string name="settings_title">Upscale Settings</string>
+    <string name="label_model">AI Model</string>
+    <string name="model_photo">Photo (Real-ESRGAN x4plus)</string>
+    <string name="model_photo_desc">Best for natural camera photos and textures (4×)</string>
+    <string name="model_anime">Anime / Illustration (x4plus-anime)</string>
+    <string name="model_anime_desc">Sharp line art, digital art, and illustrations (4×)</string>
+    <string name="model_fast_x2">Fast 2× (AnimeVideo v3 x2)</string>
+    <string name="model_fast_x2_desc">Lightweight compact model for quick 2× upscaling</string>
+    <string name="model_fast_x3">Fast 3× (AnimeVideo v3 x3)</string>
+    <string name="model_fast_x3_desc">Lightweight compact model for quick 3× upscaling</string>
+    <string name="model_fast_x4">Fast 4× (AnimeVideo v3 x4)</string>
+    <string name="model_fast_x4_desc">Lightweight compact model for quick 4× upscaling</string>
+
+    <string name="label_target">Target Resolution</string>
+    <string name="target_native">Native (%1$d×)</string>
+    <string name="target_4k">4K (3840 px)</string>
+    <string name="target_8k">8K (7680 px)</string>
+
+    <string name="label_format">Output Format</string>
+    <string name="format_jpeg">JPEG (95%)</string>
+    <string name="format_png">PNG (Lossless)</string>
+    <string name="png_slow_huge_warning">PNG encoding is significantly slower and creates very large files (often 40–90 MB at 8K). JPEG 95% is recommended.</string>
+
+    <string name="label_tile_size">Tile Size</string>
+    <string name="tile_auto">Auto (200)</string>
+    <string name="tile_px">%1$d px</string>
+
+    <string name="label_disable_fp16">Disable fp16 Precision</string>
+    <string name="disable_fp16_desc">Use full fp32 math if your GPU produces color artifacts (uses more RAM &amp; time)</string>
+
+    <!-- Queue controls & overall status -->
+    <string name="queue_header">Processing Queue (%1$d)</string>
+    <string name="overall_progress_label">Overall: %1$d / %2$d done (%3$d%%)</string>
+    <string name="start_queue">Start Upscaling</string>
+    <string name="resume_queue">Resume Queue</string>
+    <string name="cancel_all">Cancel All</string>
+    <string name="retry_all_failed">Retry Failed</string>
+
+    <!-- Per-item info & warnings -->
+    <string name="res_arrow">%1$d × %2$d  →  %3$d × %4$d</string>
+    <string name="est_ram_label">Est. RAM: ~%1$d MB</string>
+    <string name="warn_high_ram">High RAM demand (~%1$d MB vs %2$d MB available). Try 4K, JPEG, or smaller tile size to avoid out-of-memory.</string>
+    <string name="warn_large_source_limited_gain">Source is already large; it will be downscaled to %1$d × %2$d before the AI pass, so AI detail gain is limited.</string>
+    <string name="info_post_lanczos">Model outputs %1$d × %2$d, then streams Lanczos3 resize to %3$d × %4$d.</string>
+
+    <!-- Item statuses -->
+    <string name="status_waiting">Waiting</string>
+    <string name="status_running">Running • %1$d%%</string>
+    <string name="status_done">Done</string>
+    <string name="status_failed">Failed</string>
+    <string name="status_cancelled">Cancelled</string>
+    <string name="backend_tile_badge">%1$s • Tile %2$d</string>
+    <string name="done_summary">%1$s • %2$.1f s • Pictures/Enhancer</string>
+
+    <!-- Item actions -->
+    <string name="action_cancel">Cancel</string>
+    <string name="action_remove">Remove</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_compare">Compare &amp; Share</string>
+
+    <!-- Thermal safety -->
+    <string name="thermal_paused_title">Queue Paused — High Device Temperature</string>
+    <string name="thermal_paused_body">Android PowerManager reported severe thermal throttling (%1$s). Queue is paused to protect your battery and SoC. Wait for the phone to cool down or tap Resume.</string>
+    <string name="thermal_status_severe">Severe</string>
+    <string name="thermal_status_critical">Critical</string>
+    <string name="thermal_status_emergency">Emergency</string>
+
+    <!-- Result / Before-After comparison screen -->
+    <string name="result_title">Before / After Comparison</string>
+    <string name="back">Back</string>
+    <string name="label_before">BEFORE</string>
+    <string name="label_after">AFTER</string>
+    <string name="preview_downscaled_note">Preview rendered from memory-safe downscaled decode. Full %1$d × %2$d file saved to Pictures/Enhancer/%3$s. Pinch to zoom, drag divider to compare.</string>
+    <string name="reset_zoom">Reset Zoom</string>
+    <string name="btn_share">Share</string>
+    <string name="btn_open_gallery">Open in Gallery</string>
+    <string name="backend_ran_label">Backend: %1$s</string>
+    <string name="fallback_notice">Vulkan was unavailable or failed mid-run; completed automatically on CPU.</string>
+    <string name="share_chooser_title">Share Enhanced Image</string>
+    <string name="error_no_gallery_app">No gallery viewer app found on this device.</string>
+    <string name="error_no_share_app">No app available to share this image.</string>
+
+    <!-- Foreground Service Notification -->
+    <string name="notif_channel_name">Enhancer Upscaling Progress</string>
+    <string name="notif_channel_desc">Shows live offline AI image upscaling progress</string>
+    <string name="notif_running_title">Enhancing %1$d of %2$d (%3$d%%)</string>
+    <string name="notif_running_text">%1$s • %2$s</string>
+    <string name="notif_thermal_title">Upscaling Paused (Device Hot)</string>
+    <string name="notif_thermal_text">Waiting for device temperature to drop before continuing</string>
+    <string name="notif_action_cancel">Cancel</string>
+
+    <!-- Error messages -->
+    <string name="err_decode_source">Could not decode source image.</string>
+    <string name="err_mediastore_create">Could not create output file in Pictures/Enhancer.</string>
+    <string name="err_oom">Out of memory during native upscaling. Try smaller target or tile size.</string>
+    <string name="err_asset_load">Failed to load Real-ESRGAN model from app assets.</string>
+    <string name="err_bitmap_lock">Failed to lock source Bitmap pixels.</string>
+    <string name="err_inference">AI inference failed (%1$s).</string>
+    <string name="err_encode_write">Failed encoding or writing output image (check free storage).</string>
+    <string name="err_unknown">Unexpected error (%1$s).</string>
+</resources>

@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Enhancer</string>
+    <string name="app_subtitle">افزایش کیفیت آفلاین تصویر با هوش مصنوعی • Real-ESRGAN</string>
+    <string name="offline_badge">۱۰۰٪ آفلاین</string>
+
+    <!-- Language switcher -->
+    <string name="lang_system">خودکار</string>
+    <string name="lang_en">EN</string>
+    <string name="lang_fa">فارسی</string>
+
+    <!-- Device & GPU banner -->
+    <string name="gpu_detected">پردازنده گرافیکی: %1$s</string>
+    <string name="gpu_unavailable_cpu">پشتیبانی Vulkan یافت نشد • اجرا روی پردازنده (CPU)</string>
+    <string name="device_ram_summary">رم آزاد: %1$d مگابایت از %2$d مگابایت</string>
+
+    <!-- Image pickers -->
+    <string name="pick_photos">انتخاب تصاویر</string>
+    <string name="browse_files">مرور فایل‌ها</string>
+    <string name="clear_finished">پاک‌سازی انجام‌شده‌ها</string>
+    <string name="empty_queue_title">هنوز تصویری انتخاب نشده است</string>
+    <string name="empty_queue_body">یک یا چند تصویر را انتخاب کنید تا کاملاً آفلاین و روی خود گوشی تا کیفیت 4K یا 8K ارتقا داده شوند.</string>
+
+    <!-- Controls section -->
+    <string name="settings_title">تنظیمات ارتقای کیفیت</string>
+    <string name="label_model">مدل هوش مصنوعی</string>
+    <string name="model_photo">عکس واقعی (Real-ESRGAN x4plus)</string>
+    <string name="model_photo_desc">بهترین گزینه برای عکس‌های دوربین و بافت‌های طبیعی (۴ برابر)</string>
+    <string name="model_anime">انیمه و تصویرسازی (x4plus-anime)</string>
+    <string name="model_anime_desc">مناسب طراحی دیجیتال، انیمه و خطوط ظریف (۴ برابر)</string>
+    <string name="model_fast_x2">سریع ۲ برابر (AnimeVideo v3 x2)</string>
+    <string name="model_fast_x2_desc">مدل سبک و سریع برای بزرگ‌نمایی ۲ برابر</string>
+    <string name="model_fast_x3">سریع ۳ برابر (AnimeVideo v3 x3)</string>
+    <string name="model_fast_x3_desc">مدل سبک و سریع برای بزرگ‌نمایی ۳ برابر</string>
+    <string name="model_fast_x4">سریع ۴ برابر (AnimeVideo v3 x4)</string>
+    <string name="model_fast_x4_desc">مدل سبک و سریع برای بزرگ‌نمایی ۴ برابر</string>
+
+    <string name="label_target">وضوح خروجی</string>
+    <string name="target_native">اصلی مدل (%1$d برابر)</string>
+    <string name="target_4k">4K (۳۸۴۰ پیکسل)</string>
+    <string name="target_8k">8K (۷۶۸۰ پیکسل)</string>
+
+    <string name="label_format">فرمت ذخیره</string>
+    <string name="format_jpeg">JPEG (کیفیت ۹۵٪)</string>
+    <string name="format_png">PNG (بدون افت)</string>
+    <string name="png_slow_huge_warning">ذخیره با فرمت PNG در وضوح بالا بسیار کند است و فایل‌های بسیار حجیمی (۴۰ تا ۹۰ مگابایت در 8K) تولید می‌کند. فرمت JPEG 95% پیشنهاد می‌شود.</string>
+
+    <string name="label_tile_size">اندازه کاشی (Tile)</string>
+    <string name="tile_auto">خودکار (۲۰۰)</string>
+    <string name="tile_px">%1$d پیکسل</string>
+
+    <string name="label_disable_fp16">غیرفعال‌سازی دقت fp16</string>
+    <string name="disable_fp16_desc">در صورت مشاهده به‌هم‌ریختگی رنگ در برخی پردازنده‌ها فعال کنید (مصرف رم و زمان بیشتر)</string>
+
+    <!-- Queue controls & overall status -->
+    <string name="queue_header">صف پردازش (%1$d)</string>
+    <string name="overall_progress_label">مجموع: %1$d از %2$d انجام شده (%3$d%%)</string>
+    <string name="start_queue">شروع پردازش</string>
+    <string name="resume_queue">ادامه صف</string>
+    <string name="cancel_all">لغو همه</string>
+    <string name="retry_all_failed">تلاش مجدد ناموفق‌ها</string>
+
+    <!-- Per-item info & warnings -->
+    <string name="res_arrow">%1$d × %2$d  ←  %3$d × %4$d</string>
+    <string name="est_ram_label">رم تخمینی: ~%1$d مگابایت</string>
+    <string name="warn_high_ram">نیاز به رم بالا (~%1$d مگابایت در برابر %2$d مگابایت آزاد). برای جلوگیری از کمبود حافظه، وضوح 4K، فرمت JPEG یا اندازه کاشی کوچک‌تر را انتخاب کنید.</string>
+    <string name="warn_large_source_limited_gain">تصویر اصلی از قبل بزرگ است؛ ابتدا به %1$d × %2$d کوچک شده و سپس پردازش می‌شود، بنابراین افزایش جزئیات هوش مصنوعی محدود خواهد بود.</string>
+    <string name="info_post_lanczos">خروجی مدل %1$d × %2$d است و سپس با فیلتر Lanczos3 به %3$d × %4$d تغییر اندازه می‌یابد.</string>
+
+    <!-- Item statuses -->
+    <string name="status_waiting">در انتظار</string>
+    <string name="status_running">در حال اجرا • %1$d%%</string>
+    <string name="status_done">تکمیل شد</string>
+    <string name="status_failed">ناموفق</string>
+    <string name="status_cancelled">لغو شد</string>
+    <string name="backend_tile_badge">%1$s • کاشی %2$d</string>
+    <string name="done_summary">%1$s • %2$.1f ثانیه • Pictures/Enhancer</string>
+
+    <!-- Item actions -->
+    <string name="action_cancel">لغو</string>
+    <string name="action_remove">حذف</string>
+    <string name="action_retry">تلاش مجدد</string>
+    <string name="action_compare">مقایسه و اشتراک‌گذاری</string>
+
+    <!-- Thermal safety -->
+    <string name="thermal_paused_title">توقف موقت صف — دمای بالای دستگاه</string>
+    <string name="thermal_paused_body">سیستم مدیریت دمای اندروید وضعیت حرارتی شدید (%1$s) را گزارش کرده است. برای محافظت از باتری و تراشه، پردازش موقتاً متوقف شد. پس از خنک شدن گوشی ادامه دهید.</string>
+    <string name="thermal_status_severe">شدید</string>
+    <string name="thermal_status_critical">بحرانی</string>
+    <string name="thermal_status_emergency">اضطراری</string>
+
+    <!-- Result / Before-After comparison screen -->
+    <string name="result_title">مقایسه قبل و بعد</string>
+    <string name="back">بازگشت</string>
+    <string name="label_before">قبل</string>
+    <string name="label_after">بعد</string>
+    <string name="preview_downscaled_note">پیش‌نمایش با مقیاس بهینه حافظه بارگذاری شده است. فایل کامل %1$d × %2$d در پوشه Pictures/Enhancer/%3$s ذخیره شد. برای بزرگ‌نمایی دو انگشتی بکشید و خط میانی را جابه‌جا کنید.</string>
+    <string name="reset_zoom">بازنشانی بزرگ‌نمایی</string>
+    <string name="btn_share">اشتراک‌گذاری</string>
+    <string name="btn_open_gallery">باز کردن در گالری</string>
+    <string name="backend_ran_label">موتور اجرا: %1$s</string>
+    <string name="fallback_notice">پردازش Vulkan در دسترس نبود یا حین اجرا خطا داد؛ تصویر به صورت خودکار با CPU تکمیل شد.</string>
+    <string name="share_chooser_title">اشتراک‌گذاری تصویر ارتقایافته</string>
+    <string name="error_no_gallery_app">برنامه گالری برای نمایش تصویر یافت نشد.</string>
+    <string name="error_no_share_app">برنامه‌ای برای اشتراک‌گذاری تصویر یافت نشد.</string>
+
+    <!-- Foreground Service Notification -->
+    <string name="notif_channel_name">پیشرفت پردازش Enhancer</string>
+    <string name="notif_channel_desc">نمایش پیشرفت لحظه‌ای ارتقای کیفیت آفلاین تصاویر</string>
+    <string name="notif_running_title">در حال پردازش %1$d از %2$d (%3$d%%)</string>
+    <string name="notif_running_text">%1$s • %2$s</string>
+    <string name="notif_thermal_title">توقف موقت پردازش (گرمای زیاد گوشی)</string>
+    <string name="notif_thermal_text">در انتظار کاهش دمای دستگاه برای ادامه صف</string>
+    <string name="notif_action_cancel">لغو</string>
+
+    <!-- Error messages -->
+    <string name="err_decode_source">خواندن تصویر ورودی امکان‌پذیر نبود.</string>
+    <string name="err_mediastore_create">ایجاد فایل خروجی در پوشه Pictures/Enhancer ممکن نشد.</string>
+    <string name="err_oom">کمبود حافظه رم در پردازش بومی. وضوح 4K یا اندازه کاشی کوچک‌تر را امتحان کنید.</string>
+    <string name="err_asset_load">بارگذاری فایل‌های مدل Real-ESRGAN با خطا مواجه شد.</string>
+    <string name="err_bitmap_lock">قفل‌کردن پیکسل‌های تصویر ورودی ناموفق بود.</string>
+    <string name="err_inference">خطا در اجرای مدل هوش مصنوعی (%1$s).</string>
+    <string name="err_encode_write">خطا در فشرده‌سازی یا ذخیره فایل خروجی (فضای خالی حافظه را بررسی کنید).</string>
+    <string name="err_unknown">خطای غیرمنتظره (%1$s).</string>
+</resources>
