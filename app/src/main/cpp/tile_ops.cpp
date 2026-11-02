@@ -275,22 +275,20 @@ std::vector<int> build_grid_splits(int total_len, int tile_step, int min_cell_le
         return {0, total_len};
     }
 
-    std::vector<int> splits;
-    for (int pos = 0; pos < total_len; pos += tile_step) {
-        splits.push_back(pos);
-    }
-    splits.push_back(total_len);
-
-    // If the final cell is narrower than `min_cell_len`, rebalance the last two cells evenly
-    if (splits.size() >= 3) {
-        const size_t n = splits.size();
-        const int last_len = splits[n - 1] - splits[n - 2];
-        if (last_len < min_cell_len) {
-            const int two_len = splits[n - 1] - splits[n - 3];
-            splits[n - 2] = splits[n - 3] + two_len / 2;
-        }
+    int num_cells = (total_len + tile_step - 1) / tile_step;
+    if (total_len / num_cells < min_cell_len) {
+        num_cells = std::max(1, total_len / min_cell_len);
     }
 
+    std::vector<int> splits(static_cast<size_t>(num_cells) + 1u, 0);
+    for (int i = 0; i <= num_cells; ++i) {
+        splits[static_cast<size_t>(i)] = static_cast<int>(
+            (static_cast<int64_t>(i) * static_cast<int64_t>(total_len)) /
+            static_cast<int64_t>(num_cells)
+        );
+    }
+    splits.front() = 0;
+    splits.back() = total_len;
     return splits;
 }
 

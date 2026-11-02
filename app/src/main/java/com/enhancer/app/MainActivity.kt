@@ -113,6 +113,14 @@ class MainActivity : ComponentActivity() {
                                         repo.runDiagnosticsSelfTest()
                                     }
                                 },
+                                onRunSeamTest = {
+                                    coroutineScope.launch {
+                                        repo.runDiagnosticsSeamTest()
+                                    }
+                                },
+                                onCancelSeamTest = {
+                                    repo.cancelDiagnosticsSeamTest()
+                                },
                                 onBack = { showAboutScreen = false }
                             )
                         }

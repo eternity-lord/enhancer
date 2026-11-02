@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -40,6 +41,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -60,16 +62,20 @@ import androidx.compose.ui.unit.dp
 import com.enhancer.app.BuildConfig
 import com.enhancer.app.R
 import com.enhancer.app.data.QueueUiState
+import com.enhancer.app.nativebridge.SeamTestRowItem
 
 @Composable
 fun AboutScreen(
     uiState: QueueUiState,
     onRunSelfTest: () -> Unit,
+    onRunSeamTest: () -> Unit,
+    onCancelSeamTest: () -> Unit,
     onBack: () -> Unit
 ) {
     BackHandler(onBack = onBack)
     val context = LocalContext.current
     val copiedToastText = stringResource(R.string.diag_copied_toast)
+    val seamCopiedToastText = stringResource(R.string.seam_results_copied_toast)
 
     Scaffold(
         topBar = {
@@ -267,6 +273,23 @@ fun AboutScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                            Text(
+                                text = stringResource(
+                                    R.string.diag_fp16_active_line,
+                                    if (uiState.settings.disableFp16) {
+                                        stringResource(R.string.diag_fp16_mode_fp32)
+                                    } else {
+                                        stringResource(R.string.diag_fp16_mode_fp16)
+                                    },
+                                    if (uiState.isFp16UserOverridden) {
+                                        stringResource(R.string.diag_fp16_source_user)
+                                    } else {
+                                        stringResource(R.string.diag_fp16_source_auto)
+                                    }
+                                ),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
 
@@ -293,7 +316,7 @@ fun AboutScreen(
 
                     Button(
                         onClick = onRunSelfTest,
-                        enabled = !uiState.isSelfTestRunning && !uiState.isServiceRunning,
+                        enabled = !uiState.isSelfTestRunning && !uiState.isSeamTestRunning && !uiState.isServiceRunning,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         if (uiState.isSelfTestRunning) {
@@ -338,6 +361,144 @@ fun AboutScreen(
                             passed = res.cpuPassed,
                             detail = res.cpuDetail
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Seam Test Section (700x500 smooth synthetic image across Vulkan/CPU, fp16, MaxQ, 128/200/256)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GridOn,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.diag_seam_test_title),
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        uiState.seamTestResult?.let { seamRes ->
+                            OutlinedButton(
+                                onClick = {
+                                    copyToClipboard(
+                                        context = context,
+                                        text = buildString {
+                                            appendLine("RAM: ${uiState.deviceMemory.availMb}/${uiState.deviceMemory.totalMb} MB")
+                                            append(seamRes.formattedTable)
+                                        },
+                                        toastMessage = seamCopiedToastText
+                                    )
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ContentCopy,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = stringResource(R.string.btn_copy_results),
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Text(
+                        text = stringResource(R.string.diag_seam_test_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = onRunSeamTest,
+                            enabled = !uiState.isSeamTestRunning && !uiState.isSelfTestRunning && !uiState.isServiceRunning,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            if (uiState.isSeamTestRunning) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(stringResource(R.string.btn_seam_test))
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.GridOn,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(stringResource(R.string.btn_seam_test))
+                            }
+                        }
+
+                        if (uiState.isSeamTestRunning) {
+                            OutlinedButton(onClick = onCancelSeamTest) {
+                                Text(stringResource(R.string.btn_cancel_seam_test))
+                            }
+                        }
+                    }
+
+                    if (uiState.isSeamTestRunning) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val frac = if (uiState.seamTestProgressTotal > 0) {
+                            (uiState.seamTestProgressDone.toFloat() / uiState.seamTestProgressTotal.toFloat()).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        }
+                        LinearProgressIndicator(
+                            progress = { frac },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = stringResource(
+                                R.string.seam_test_running,
+                                uiState.seamTestProgressDone,
+                                uiState.seamTestProgressTotal,
+                                uiState.seamTestProgressLabel
+                            ),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontFamily = FontFamily.Monospace,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    uiState.seamTestResult?.let { seamRes ->
+                        Spacer(modifier = Modifier.height(10.dp))
+                        SelfTestBackendCard(
+                            title = seamRes.summary,
+                            passed = seamRes.statusCode == 0 && !seamRes.summary.contains("Default Policy: FAIL"),
+                            detail = seamRes.fp16PolicyReason.ifBlank { uiState.fp16PolicyReason }
+                        )
+                        if (seamRes.rows.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                seamRes.rows.forEach { row ->
+                                    SeamTestRowCard(row = row)
+                                }
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -553,6 +714,67 @@ private fun SelfTestBackendCard(
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SeamTestRowCard(row: SeamTestRowItem) {
+    val isPass = row.statusLabel == "PASS"
+    val isSkip = row.statusLabel == "N/A"
+    val bgColor = when {
+        isPass -> Color(0xFF064E3B).copy(alpha = 0.35f)
+        isSkip -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+        else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.65f)
+    }
+    val badgeColor = when {
+        isPass -> Color(0xFF6EE7B7)
+        isSkip -> MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MaterialTheme.colorScheme.onErrorContainer
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = bgColor
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "${row.backend} • fp16=${row.fp16Label} • MaxQ=${row.maxQualityLabel} • tile=${row.tileSize}",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = row.statusLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    color = badgeColor
+                )
+            }
+            if (!isSkip) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = stringResource(
+                        R.string.seam_row_metrics,
+                        row.meanBndVsInt,
+                        row.maxBndVsInt,
+                        row.neighborMeanDiff,
+                        row.elapsedMs,
+                        row.gridNote
+                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

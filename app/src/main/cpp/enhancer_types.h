@@ -7,6 +7,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace enhancer {
 
@@ -187,7 +188,46 @@ struct SelfTestReport {
     std::string full_log;
 };
 
+struct Fp16CalibrationReport {
+    bool vulkan_available = false;
+    bool is_adreno = false;
+    uint32_t vendor_id = 0;
+    std::string gpu_name;
+    bool recommend_disable_fp16 = false;
+    double fp16_vs_cpu_mean_diff = 0.0;
+    double fp16_vs_cpu_max_diff = 0.0;
+    double fp16_inter_tile_diff = 0.0;
+    double fp32_vs_cpu_mean_diff = 0.0;
+    std::string reason;
+};
+
+struct SeamTestCaseRow {
+    std::string backend;         // "Vulkan" or "CPU"
+    bool fp16_enabled = false;   // true = fp16 ON, false = fp16 OFF (fp32)
+    bool max_quality = false;    // false = OFF, true = ON
+    int tile_size = 200;         // 128, 200, or 256
+    bool backend_available = false; // false when Vulkan GPU is absent on device
+    bool passed = false;         // PASS iff max_boundary_jump <= 2 on smooth areas & neighbor_mean_diff <= 1.0
+    int64_t elapsed_ms = 0;
+    float neighbor_mean_diff = 0.0f; // Max mean luminance diff between neighboring tile border strips
+    int max_boundary_jump = 0;       // Max channel jump across tile boundaries on smooth areas
+    int max_interior_jump = 0;       // Max channel jump inside tiles on smooth areas
+    float mean_boundary_jump = 0.0f; // Mean channel jump across tile boundaries on smooth areas
+    float mean_interior_jump = 0.0f; // Mean channel jump inside tiles on smooth areas
+    std::string note;
+};
+
+struct SeamTestReport {
+    EnhancerStatus status = EnhancerStatus::OK;
+    bool overall_pass = false;
+    std::string summary;
+    Fp16CalibrationReport fp16_calibration;
+    std::vector<SeamTestCaseRow> rows;
+    std::string formatted_table;
+};
+
 using ProgressCallback = std::function<void(int progress, const std::string& backend, int tile_size)>;
+using SeamTestProgressCallback = std::function<void(int completed_cases, int total_cases, const std::string& current_label)>;
 
 } // namespace enhancer
 

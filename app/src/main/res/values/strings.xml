@@ -65,7 +65,7 @@
     <string name="tile_px">%1$d px</string>
 
     <string name="label_disable_fp16">Disable fp16 Precision</string>
-    <string name="disable_fp16_desc">Use full fp32 math if your GPU produces color artifacts (uses more RAM &amp; time)</string>
+    <string name="disable_fp16_desc">Uses full fp32 storage/uniforms to prevent smooth-surface tile drift (auto-enabled on Adreno GPUs; manually override anytime)</string>
 
     <string name="label_safe_mode">Safe Mode</string>
     <string name="safe_mode_desc">Forces CPU + tile 64 + no Max Quality + no TTA for maximum stability</string>
@@ -177,6 +177,19 @@
     <string name="self_test_cpu_row">CPU • %1$s (%2$d ms)</string>
     <string name="self_test_pass">PASS</string>
     <string name="self_test_fail">FAIL</string>
+    <string name="diag_fp16_active_line">Active Precision: %1$s (%2$s)</string>
+    <string name="diag_fp16_mode_fp32">FP32 (FP16 disabled)</string>
+    <string name="diag_fp16_mode_fp16">FP16 storage enabled</string>
+    <string name="diag_fp16_source_user">manual override</string>
+    <string name="diag_fp16_source_auto">hardware auto-default</string>
+    <string name="diag_seam_test_title">Tile Seam &amp; Smoothness Test (700×500)</string>
+    <string name="diag_seam_test_desc" formatted="false">Generates a 700×500 smooth studio wall + gradient + glossy floor scene and tests Vulkan &amp; CPU × fp16 ON/OFF × Max Quality ON/OFF × tiles 128/200/256 (FAIL if smooth boundary jump exceeds baseline by &gt; 2 gray levels).</string>
+    <string name="btn_seam_test">Seam test</string>
+    <string name="btn_cancel_seam_test">Cancel</string>
+    <string name="seam_test_running" formatted="false">Running Seam test (%1$d/%2$d): %3$s</string>
+    <string name="btn_copy_results">Copy results</string>
+    <string name="seam_results_copied_toast">Seam test results copied to clipboard</string>
+    <string name="seam_row_metrics" formatted="false">Bnd/Int mean: %1$s • max: %2$s • Nbr shift: %3$s lvl • %4$d ms • %5$s</string>
     <string name="diag_latest_native_title">Latest Native Diagnostic Message</string>
     <string name="diag_no_message_yet">No native job or self-test run recorded yet.</string>
 

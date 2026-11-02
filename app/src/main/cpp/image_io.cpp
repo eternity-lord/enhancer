@@ -121,17 +121,32 @@ int write_jpg_full_chroma_444(
     stbi__write_context s = {0};
     stbi__start_write_callbacks(&s, func, context);
 
-    int q = std::clamp(quality, 1, 100);
-    q = (q < 50) ? (5000 / q) : (200 - q * 2);
+    const int clamped_q = std::clamp(quality, 1, 100);
+    int q_scale = (clamped_q < 50) ? (5000 / clamped_q) : (200 - clamped_q * 2);
+    // At studio quality >= 97 (default is 98), step smoothly to unit quantizers so smooth areas
+    // never suffer 8x8 DCT AC-zeroing micro-block mesh texture:
+    //   Q=97 -> q_scale=2, Q=98 -> q_scale=1, Q=99..100 -> q_scale=0 (all 64 quantizers = 1).
+    if (clamped_q == 97) {
+        q_scale = 2;
+    } else if (clamped_q == 98) {
+        q_scale = 1;
+    } else if (clamped_q >= 99) {
+        q_scale = 0;
+    }
 
     unsigned char YTable[64];
     unsigned char UVTable[64];
     float fdtbl_Y[64];
     float fdtbl_UV[64];
 
+    // Use fine perceptual YQT for both luma and 4:4:4 full-chroma tables when quality >= 90
+    // (standard Annex K UVQT fills 50/64 entries with 99 assuming 4:2:0 subsampling, which
+    // creates visible 8x8 chroma block steps on smooth areas even at Q=95..98).
+    const int* chroma_qt = (clamped_q >= 90) ? YQT : UVQT;
+
     for (int i = 0; i < 64; ++i) {
-        const int yti = (YQT[i] * q + 50) / 100;
-        const int uvti = (UVQT[i] * q + 50) / 100;
+        const int yti = (YQT[i] * q_scale + 50) / 100;
+        const int uvti = (chroma_qt[i] * q_scale + 50) / 100;
         YTable[stbiw__jpg_ZigZag[i]] = static_cast<unsigned char>(std::clamp(yti, 1, 255));
         UVTable[stbiw__jpg_ZigZag[i]] = static_cast<unsigned char>(std::clamp(uvti, 1, 255));
     }
