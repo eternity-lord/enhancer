@@ -9,9 +9,11 @@
 #include <jni.h>
 
 #include <atomic>
+#include <cstdio>
 #include <exception>
 #include <new>
 #include <string>
+#include <vector>
 
 #define LOG_TAG "EnhancerJNI"
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
@@ -19,6 +21,7 @@
 namespace {
 
 std::atomic<bool> g_cancel_requested{false};
+std::atomic<bool> g_seam_test_cancel_requested{false};
 
 std::string jstring_to_std(JNIEnv* env, jstring jstr) {
     if (!jstr) {
@@ -169,6 +172,245 @@ Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeCancel(
     jobject /*thiz*/
 ) {
     g_cancel_requested.store(true, std::memory_order_relaxed);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeCancelSeamTest(
+    JNIEnv* /*env*/,
+    jobject /*thiz*/
+) {
+    g_seam_test_cancel_requested.store(true, std::memory_order_relaxed);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeShouldDefaultDisableFp16(
+    JNIEnv* /*env*/,
+    jobject /*thiz*/
+) {
+    return enhancer::should_default_disable_fp16_sync() ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeCalibrateFp16Policy(
+    JNIEnv* env,
+    jobject /*thiz*/,
+    jobject asset_manager_obj
+) {
+    jclass string_cls = env->FindClass("java/lang/String");
+    if (!string_cls) {
+        return nullptr;
+    }
+
+    auto make_four = [&](const std::string items[4]) -> jobjectArray {
+        jstring empty = env->NewStringUTF("");
+        jobjectArray arr = env->NewObjectArray(4, string_cls, empty);
+        if (empty) {
+            env->DeleteLocalRef(empty);
+        }
+        if (!arr) {
+            return nullptr;
+        }
+        for (int i = 0; i < 4; ++i) {
+            jstring s = env->NewStringUTF(items[i].c_str());
+            if (s) {
+                env->SetObjectArrayElement(arr, i, s);
+                env->DeleteLocalRef(s);
+            }
+        }
+        return arr;
+    };
+
+    try {
+        AAssetManager* asset_mgr = asset_manager_obj
+            ? AAssetManager_fromJava(env, asset_manager_obj)
+            : nullptr;
+        const enhancer::Fp16CalibrationReport rep =
+            enhancer::calibrate_vulkan_fp16_policy(asset_mgr);
+        const std::string fields[4] = {
+            rep.recommend_disable_fp16 ? "1" : "0",
+            rep.vulkan_available ? "1" : "0",
+            rep.is_adreno ? "1" : "0",
+            rep.reason
+        };
+        jobjectArray out = make_four(fields);
+        env->DeleteLocalRef(string_cls);
+        return out;
+    } catch (...) {
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+        const bool def_off = enhancer::should_default_disable_fp16_sync();
+        const std::string fields[4] = {
+            def_off ? "1" : "0",
+            "0",
+            def_off ? "1" : "0",
+            def_off ? "FP16 default: OFF (hardware policy)" : "FP16 default: ON"
+        };
+        jobjectArray out = make_four(fields);
+        env->DeleteLocalRef(string_cls);
+        return out;
+    }
+}
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeRunSeamTest(
+    JNIEnv* env,
+    jobject /*thiz*/,
+    jobject asset_manager_obj,
+    jobject progress_listener
+) {
+    g_seam_test_cancel_requested.store(false, std::memory_order_relaxed);
+    jclass string_cls = env->FindClass("java/lang/String");
+    if (!string_cls) {
+        return nullptr;
+    }
+
+    auto make_vec_array = [&](const std::vector<std::string>& items) -> jobjectArray {
+        jstring empty = env->NewStringUTF("");
+        jobjectArray arr = env->NewObjectArray(static_cast<jsize>(items.size()), string_cls, empty);
+        if (empty) {
+            env->DeleteLocalRef(empty);
+        }
+        if (!arr) {
+            return nullptr;
+        }
+        for (size_t i = 0; i < items.size(); ++i) {
+            jstring s = env->NewStringUTF(items[i].c_str());
+            if (s) {
+                env->SetObjectArrayElement(arr, static_cast<jsize>(i), s);
+                env->DeleteLocalRef(s);
+            }
+        }
+        return arr;
+    };
+
+    try {
+        AAssetManager* asset_mgr = AAssetManager_fromJava(env, asset_manager_obj);
+        if (!asset_mgr) {
+            const std::vector<std::string> err = {
+                std::to_string(static_cast<int>(enhancer::EnhancerStatus::ERR_ASSET_LOAD)),
+                "FAIL",
+                "AssetManager is null",
+                "",
+                "Seam test failed: AssetManager is null"
+            };
+            jobjectArray out = make_vec_array(err);
+            env->DeleteLocalRef(string_cls);
+            return out;
+        }
+
+        jmethodID progress_mid = nullptr;
+        if (progress_listener != nullptr) {
+            jclass listener_cls = env->GetObjectClass(progress_listener);
+            if (listener_cls) {
+                progress_mid = env->GetMethodID(
+                    listener_cls,
+                    "onProgress",
+                    "(ILjava/lang/String;I)V"
+                );
+                env->DeleteLocalRef(listener_cls);
+                if (env->ExceptionCheck()) {
+                    env->ExceptionClear();
+                    progress_mid = nullptr;
+                }
+            }
+        }
+
+        auto prog_cb = [&](int done_cases, int total_cases, const std::string& label) {
+            if (!progress_listener || !progress_mid) {
+                return;
+            }
+            jstring j_label = env->NewStringUTF(label.c_str());
+            env->CallVoidMethod(
+                progress_listener,
+                progress_mid,
+                static_cast<jint>(done_cases),
+                j_label,
+                static_cast<jint>(total_cases)
+            );
+            if (j_label) {
+                env->DeleteLocalRef(j_label);
+            }
+            if (env->ExceptionCheck()) {
+                env->ExceptionClear();
+                g_seam_test_cancel_requested.store(true, std::memory_order_relaxed);
+            }
+        };
+
+        const enhancer::SeamTestReport rep = enhancer::run_native_seam_test(
+            asset_mgr,
+            g_seam_test_cancel_requested,
+            prog_cb
+        );
+
+        std::vector<std::string> fields;
+        fields.reserve(5u + rep.rows.size());
+        fields.push_back(std::to_string(static_cast<int>(rep.status)));
+        fields.push_back(rep.overall_pass ? "PASS" : "FAIL");
+        fields.push_back(rep.summary);
+        fields.push_back(rep.fp16_calibration.reason);
+        fields.push_back(rep.formatted_table);
+
+        for (const enhancer::SeamTestCaseRow& r : rep.rows) {
+            char row_buf[320];
+            const char* status_str = !r.backend_available ? "N/A" : (r.passed ? "PASS" : "FAIL");
+            std::snprintf(
+                row_buf,
+                sizeof(row_buf),
+                "%s\t%s\t%s\t%d\t%s\t%.2f/%.2f\t%d/%d\t%.2f\t%lld\t%s",
+                r.backend.c_str(),
+                r.fp16_enabled ? "ON" : "OFF",
+                r.max_quality ? "ON" : "OFF",
+                r.tile_size,
+                status_str,
+                static_cast<double>(r.mean_boundary_jump),
+                static_cast<double>(r.mean_interior_jump),
+                r.max_boundary_jump,
+                r.max_interior_jump,
+                static_cast<double>(r.neighbor_mean_diff),
+                static_cast<long long>(r.elapsed_ms),
+                r.note.c_str()
+            );
+            fields.emplace_back(row_buf);
+        }
+
+        jobjectArray out = make_vec_array(fields);
+        env->DeleteLocalRef(string_cls);
+        return out;
+    } catch (const std::bad_alloc&) {
+        const std::vector<std::string> err = {
+            std::to_string(static_cast<int>(enhancer::EnhancerStatus::ERR_OUT_OF_MEMORY)),
+            "FAIL",
+            "Out of memory during Seam Test",
+            "",
+            "Seam test failed: std::bad_alloc"
+        };
+        jobjectArray out = make_vec_array(err);
+        env->DeleteLocalRef(string_cls);
+        return out;
+    } catch (const std::exception& ex) {
+        const std::vector<std::string> err = {
+            std::to_string(static_cast<int>(enhancer::EnhancerStatus::ERR_EXCEPTION)),
+            "FAIL",
+            std::string("Exception: ") + ex.what(),
+            "",
+            std::string("Seam test exception: ") + ex.what()
+        };
+        jobjectArray out = make_vec_array(err);
+        env->DeleteLocalRef(string_cls);
+        return out;
+    } catch (...) {
+        const std::vector<std::string> err = {
+            std::to_string(static_cast<int>(enhancer::EnhancerStatus::ERR_EXCEPTION)),
+            "FAIL",
+            "Unknown native exception during Seam Test",
+            "",
+            "Seam test failed: unknown native exception"
+        };
+        jobjectArray out = make_vec_array(err);
+        env->DeleteLocalRef(string_cls);
+        return out;
+    }
 }
 
 extern "C" JNIEXPORT jstring JNICALL

@@ -56,14 +56,15 @@ void apply_adaptive_unsharp_mask_planar(
     int strength_0_to_100
 );
 
-// Builds grid split coordinates [0 = splits[0] < splits[1] < ... < splits[N] = total_len]
-// with nominal step `tile_step`, ensuring no trailing sliver is smaller than `min_cell_len`
-// whenever `total_len >= 2 * min_cell_len` (so 32px output feathering always has full support).
+// Builds balanced grid split coordinates [0 = splits[0] < splits[1] < ... < splits[N] = total_len]
+// with max cell size <= `tile_step` (when `tile_step >= min_cell_len`), distributing cells evenly so
+// right-edge and bottom-edge tiles never become narrow runt slivers.
 std::vector<int> build_grid_splits(int total_len, int tile_step, int min_cell_len);
 
 // Computes 1D linear tent weight in [0, 1] for pixel `p` belonging to segment `[seg0, seg1)`
 // with symmetric feather half-widths `half_left` around `seg0` and `half_right` around `seg1`.
-// Guarantees exact partition of unity: w_{i-1}(p) + w_i(p) == 1.0 across every interior seam.
+// Integer index offset is computed BEFORE float conversion so even 8K+ coordinates suffer zero
+// float subtraction cancellation and adjacent weights satisfy w_{i-1}(p) + w_i(p) == 1.0f.
 inline float linear_tent_weight(
     int p,
     int seg0,
@@ -72,14 +73,12 @@ inline float linear_tent_weight(
     int half_right
 ) noexcept {
     if (half_left > 0 && p < seg0 + half_left) {
-        const float start = static_cast<float>(seg0 - half_left);
-        const float width = static_cast<float>(2 * half_left);
-        return ((static_cast<float>(p) + 0.5f) - start) / width;
+        const int idx = p - (seg0 - half_left);
+        return static_cast<float>(2 * idx + 1) / static_cast<float>(4 * half_left);
     }
     if (half_right > 0 && p >= seg1 - half_right) {
-        const float start = static_cast<float>(seg1 - half_right);
-        const float width = static_cast<float>(2 * half_right);
-        return 1.0f - (((static_cast<float>(p) + 0.5f) - start) / width);
+        const int idx = p - (seg1 - half_right);
+        return 1.0f - (static_cast<float>(2 * idx + 1) / static_cast<float>(4 * half_right));
     }
     return 1.0f;
 }

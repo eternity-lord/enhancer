@@ -65,7 +65,7 @@
     <string name="tile_px">%1$d پیکسل</string>
 
     <string name="label_disable_fp16">غیرفعال‌سازی دقت fp16</string>
-    <string name="disable_fp16_desc">در صورت مشاهده به‌هم‌ریختگی رنگ در برخی پردازنده‌ها فعال کنید (مصرف رم و زمان بیشتر)</string>
+    <string name="disable_fp16_desc">استفاده از دقت کامل fp32 برای جلوگیری از اختلاف روشنایی سطوح صاف (به‌طور خودکار روی پردازنده‌های Adreno فعال می‌شود؛ قابل تغییر دستی)</string>
 
     <string name="label_safe_mode">حالت ایمن (Safe Mode)</string>
     <string name="safe_mode_desc">اجبار پردازش روی CPU + کاشی ۶۴ + بدون حداکثر کیفیت + بدون TTA برای بیشترین پایداری</string>
@@ -177,6 +177,19 @@
     <string name="self_test_cpu_row">CPU • %1$s (%2$d میلی‌ثانیه)</string>
     <string name="self_test_pass">PASS</string>
     <string name="self_test_fail">FAIL</string>
+    <string name="diag_fp16_active_line">دقت محاسباتی فعال: %1$s (%2$s)</string>
+    <string name="diag_fp16_mode_fp32">FP32 (غیرفعال‌بودن FP16)</string>
+    <string name="diag_fp16_mode_fp16">ذخیره‌سازی FP16 فعال</string>
+    <string name="diag_fp16_source_user">تنظیم دستی کاربر</string>
+    <string name="diag_fp16_source_auto">پیش‌فرض هوشمند سخت‌افزار</string>
+    <string name="diag_seam_test_title">تست مرز کاشی و سطوح صاف (Seam test 700×500)</string>
+    <string name="diag_seam_test_desc" formatted="false">یک تصویر صاف ۷۰۰×۵۰۰ (دیوار خاکستری + گرادیان نرم + کف براق روشن) تولید کرده و در ترکیب‌های Vulkan و CPU × دقت fp16 روشن/خاموش × حداکثر کیفیت روشن/خاموش × کاشی‌های ۱۲۸/۲۰۰/۲۵۶ بررسی می‌کند (در صورت جهش مرز بیش از ۲ سطح خاکستری، FAIL ثبت می‌شود).</string>
+    <string name="btn_seam_test">تست مرز کاشی (Seam test)</string>
+    <string name="btn_cancel_seam_test">لغو</string>
+    <string name="seam_test_running" formatted="false">در حال اجرای تست مرز (%1$d/%2$d): %3$s</string>
+    <string name="btn_copy_results">کپی نتایج (Copy results)</string>
+    <string name="seam_results_copied_toast">نتایج تست مرز کاشی در حافظه کپی شد</string>
+    <string name="seam_row_metrics" formatted="false">میانگین مرز/داخل: %1$s • بیشینه: %2$s • اختلاف کاشی همسایه: %3$s • %4$d ms • %5$s</string>
     <string name="diag_latest_native_title">آخرین پیام عیب‌یابی موتور بومی</string>
     <string name="diag_no_message_yet">هنوز پردازش یا تست خودکاری ثبت نشده است.</string>
 

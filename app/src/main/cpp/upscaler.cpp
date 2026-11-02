@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <mutex>
@@ -36,10 +37,11 @@ namespace {
 constexpr int kDefaultTileSize = 200;
 constexpr int kMinTileSize = 48;
 constexpr int kSafeModeTileSize = 64;
-constexpr int kStandardTilePad = 10;
-constexpr int kMaxQualityTilePad = 32;
-constexpr int kMaxQualityFeatherOut = 32;
-constexpr int kMaxQualityHalfFeather = kMaxQualityFeatherOut / 2; // 16 output pixels each side
+constexpr int kStandardTilePad = 16;          // >= 10px prepadding (64px at 4x) with reflect border
+constexpr int kMaxQualityTilePad = 32;        // 32px prepadding (128px at 4x) with reflect border
+constexpr int kStandardOverlapHalfIn = 3;     // 6*m output feather (24px at 4x), exact multiple of m
+constexpr int kMaxQualityOverlapHalfIn = 4;   // 8*m output feather (32px at 4x), exact multiple of m
+constexpr uint32_t kQualcommVendorId = 0x5143u;
 
 // Balanced process-lifetime Vulkan instance manager:
 // `create_gpu_instance()` is called lazily at most once, and `destroy_gpu_instance()` is called
@@ -48,6 +50,54 @@ std::mutex g_vulkan_mutex;
 bool g_vulkan_init_attempted = false;
 bool g_vulkan_instance_created = false;
 int g_vulkan_create_rc = 0;
+
+std::mutex g_fp16_calib_mutex;
+std::mutex g_calib_run_mutex;
+bool g_fp16_calib_done = false;
+Fp16CalibrationReport g_fp16_calib_report;
+
+bool contains_case_insensitive(const std::string& haystack, const char* needle) {
+    if (!needle || needle[0] == '\0') {
+        return false;
+    }
+    const size_t nlen = std::strlen(needle);
+    if (haystack.size() < nlen) {
+        return false;
+    }
+    for (size_t i = 0; i + nlen <= haystack.size(); ++i) {
+        bool match = true;
+        for (size_t j = 0; j < nlen; ++j) {
+            char a = haystack[i + j];
+            char b = needle[j];
+            if (a >= 'A' && a <= 'Z') a = static_cast<char>(a - 'A' + 'a');
+            if (b >= 'A' && b <= 'Z') b = static_cast<char>(b - 'A' + 'a');
+            if (a != b) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string format_fixed(double val, int decimals) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.*f", decimals, val);
+    return std::string(buf);
+}
+
+std::string format_hex32(uint32_t val) {
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "0x%04x", val);
+    return std::string(buf);
+}
+
+bool is_adreno_gpu(uint32_t vendor_id, const std::string& device_name) {
+    return vendor_id == kQualcommVendorId || contains_case_insensitive(device_name, "adreno");
+}
 
 bool ensure_vulkan_ready(int* out_create_rc = nullptr) noexcept {
     std::lock_guard<std::mutex> lock(g_vulkan_mutex);
@@ -163,22 +213,31 @@ public:
         const int all_cores = ncnn::get_cpu_count();
         const int threads = std::clamp(big_cores > 0 ? big_cores : all_cores, 1, 8);
 
+        blob_cpu_allocator_.set_size_compare_ratio(0.0f);
+        workspace_cpu_allocator_.set_size_compare_ratio(0.0f);
+
         net_.opt = ncnn::Option();
         net_.opt.num_threads = threads;
         net_.opt.lightmode = true;
+        net_.opt.blob_allocator = &blob_cpu_allocator_;
+        net_.opt.workspace_allocator = &workspace_cpu_allocator_;
         net_.opt.use_int8_packed = false;
         net_.opt.use_int8_storage = false;
         net_.opt.use_int8_arithmetic = false;
+        net_.opt.use_bf16_packed = false;
+        net_.opt.use_bf16_storage = false;
 
         if (config.disable_fp16) {
             net_.opt.use_fp16_packed = false;
             net_.opt.use_fp16_storage = false;
             net_.opt.use_fp16_arithmetic = false;
+            net_.opt.use_fp16_uniform = false;
         } else {
             net_.opt.use_fp16_packed = true;
             net_.opt.use_fp16_storage = true;
             // Keep fp16_arithmetic = false to prevent deep RRDB FP16 overflow / NaN on mobile GPUs
             net_.opt.use_fp16_arithmetic = false;
+            net_.opt.use_fp16_uniform = true;
         }
 
         if (use_vulkan_) {
@@ -219,11 +278,19 @@ public:
                 ((dev_name && dev_name[0] != '\0') ? dev_name : "GPU") + ")";
             out_heap_budget_mb = vkdev_->get_heap_budget();
 
+            // Disable Winograd F(4,3) on Vulkan: across 345+ 3x3 RRDB layers its 8x per-axis
+            // (64x 2D) Vandermonde transform amplifies 4x4 block rounding into a 16x16 smooth-area
+            // mesh, and winograd_gemm.comp preloads shared memory before checking gx < outw.
+            // Winograd F(2,3) + SGEMM remain active for fast Vulkan compute without 4x4 mesh error.
+            net_.opt.use_winograd43_convolution = false;
             net_.opt.use_vulkan_compute = true;
             net_.opt.vulkan_device_index = gpu_idx;
             net_.set_vulkan_device(vkdev_);
         } else {
             net_.opt.use_vulkan_compute = false;
+            // Direct conv on CPU avoids multi-GB Winograd/SGEMM workspace spikes on 256+ px tiles.
+            net_.opt.use_winograd_convolution = false;
+            net_.opt.use_sgemm_convolution = false;
             out_backend_label = "CPU (" + std::to_string(threads) + " threads)";
         }
 
@@ -312,10 +379,12 @@ public:
         if (staging_vkallocator_) {
             staging_vkallocator_->clear();
         }
+        blob_cpu_allocator_.clear();
+        workspace_cpu_allocator_.clear();
     }
 
     void release() noexcept {
-        // Clear Net first so no buffers reference VkAllocators or VulkanDevice
+        // Clear Net first so no buffers reference VkAllocators, CPU allocators, or VulkanDevice
         net_.clear();
         if (vkdev_) {
             if (blob_vkallocator_) {
@@ -330,6 +399,8 @@ public:
             }
             vkdev_ = nullptr;
         }
+        blob_cpu_allocator_.clear();
+        workspace_cpu_allocator_.clear();
         use_vulkan_ = false;
     }
 
@@ -337,11 +408,15 @@ public:
     bool using_vulkan() const noexcept { return use_vulkan_; }
     ncnn::VkAllocator* blob_vkallocator() const noexcept { return blob_vkallocator_; }
     ncnn::VkAllocator* staging_vkallocator() const noexcept { return staging_vkallocator_; }
+    ncnn::UnlockedPoolAllocator* blob_cpu_allocator() noexcept { return &blob_cpu_allocator_; }
+    ncnn::PoolAllocator* workspace_cpu_allocator() noexcept { return &workspace_cpu_allocator_; }
     const char* input_blob() const noexcept { return input_blob_.c_str(); }
     const char* output_blob() const noexcept { return output_blob_.c_str(); }
 
 private:
     ncnn::Net net_;
+    ncnn::UnlockedPoolAllocator blob_cpu_allocator_;
+    ncnn::PoolAllocator workspace_cpu_allocator_;
     ncnn::VulkanDevice* vkdev_ = nullptr;
     ncnn::VkAllocator* blob_vkallocator_ = nullptr;
     ncnn::VkAllocator* staging_vkallocator_ = nullptr;
@@ -359,42 +434,6 @@ inline uint8_t clamp_float_255_to_u8(float v) noexcept {
         return 255;
     }
     return static_cast<uint8_t>(rounded);
-}
-
-inline uint16_t clamp_float_255_weighted_q8(float v, uint32_t weight_q8) noexcept {
-    if (!(v > 0.0f) || weight_q8 == 0u) {
-        return 0u;
-    }
-    const float clamped = (v >= 255.0f) ? 255.0f : v;
-    const float scaled = clamped * static_cast<float>(weight_q8) + 0.5f;
-    if (scaled >= 65280.0f) {
-        return 65280u;
-    }
-    return static_cast<uint16_t>(scaled);
-}
-
-// Quantizes linear tent weight on [0..256] such that left + right weights across any 32px
-// interior feather seam sum to EXACTLY 256 (exact integer partition of unity).
-inline uint32_t linear_tent_weight_q8(
-    int p,
-    int seg0,
-    int seg1,
-    int half_left,
-    int half_right
-) noexcept {
-    if (half_left > 0 && p < seg0 + half_left) {
-        const int idx = p - (seg0 - half_left); // 0 .. 2*half_left - 1
-        const int width = 2 * half_left;
-        // Symmetric rounding so w_left(width - 1 - idx) + w_right(idx) == 256
-        return static_cast<uint32_t>(((2 * idx + 1) * 256 + width) / (2 * width));
-    }
-    if (half_right > 0 && p >= seg1 - half_right) {
-        const int idx = p - (seg1 - half_right); // 0 .. 2*half_right - 1
-        const int width = 2 * half_right;
-        const uint32_t rising = static_cast<uint32_t>(((2 * idx + 1) * 256 + width) / (2 * width));
-        return 256u - rising;
-    }
-    return 256u;
 }
 
 inline int reflect_coord(int p, int len) noexcept {
@@ -615,6 +654,8 @@ TilePassOutcome run_tile_inference_planar(
 
                 ncnn::Extractor ex = session.net().create_extractor();
                 ex.set_light_mode(true);
+                ex.set_blob_allocator(session.blob_cpu_allocator());
+                ex.set_workspace_allocator(session.workspace_cpu_allocator());
                 if (session.using_vulkan()) {
                     if (session.blob_vkallocator()) {
                         ex.set_blob_vkallocator(session.blob_vkallocator());
@@ -682,11 +723,11 @@ TilePassOutcome run_tile_inference_planar(
                         const float* ch_g = ch_g_mat;
                         const float* ch_b = ch_b_mat;
 
-                        // Guard against mobile GPU Vulkan driver NaN/Inf shader output
+                        // Guard against mobile GPU Vulkan driver NaN/Inf shader output across distributed samples
                         if (session.using_vulkan()) {
                             const size_t total_px = static_cast<size_t>(expected_w) * static_cast<size_t>(expected_h);
-                            const size_t samples[3] = {0u, total_px / 2u, total_px - 1u};
-                            for (size_t sidx : samples) {
+                            const size_t step = std::max<size_t>(1u, total_px / 64u);
+                            for (size_t sidx = 0; sidx < total_px; sidx += step) {
                                 if (!std::isfinite(ch_r[sidx]) || !std::isfinite(ch_g[sidx]) || !std::isfinite(ch_b[sidx])) {
                                     out_failure = FailureInfo{
                                         EnhancerStatus::ERR_INFERENCE,
@@ -725,7 +766,7 @@ TilePassOutcome run_tile_inference_planar(
             }
         }
 
-        // `Extractor ex` and `Mat out` are now destroyed; flush per-tile Vulkan pools immediately!
+        // `Extractor ex` and `Mat out` are now destroyed; flush per-tile Vulkan & CPU pools immediately!
         session.clear_tile_allocators();
         if (pass_failed) {
             return TilePassOutcome::FAILED;
@@ -733,6 +774,413 @@ TilePassOutcome run_tile_inference_planar(
 
         if (on_subpass_done) {
             on_subpass_done(t);
+        }
+    }
+
+    return TilePassOutcome::OK;
+}
+
+inline int align_up_int(int val, int align) noexcept {
+    return ((val + align - 1) / align) * align;
+}
+
+// Unified feathered tiled inference engine shared by BOTH Standard and Max Quality modes
+// AND by the 700x500 Diagnostics Seam Test:
+//   - Balanced grid splits (`build_grid_splits`) so right-edge and bottom-edge tiles are never narrow slivers.
+//   - Uniform aligned padded tile shape (`fixed_tile_in_w x fixed_tile_in_h`) across EVERY tile in the image
+//     so interior, right-column, and bottom-row tiles execute identical Vulkan/CPU tensor geometries.
+//   - True symmetric border reflection (`reflect_coord`) on all 4 borders (`>= 16px` Standard, `32px` MaxQ).
+//   - Exact `float` tent feather weights (`w_prev + w_curr == 1.0f`) accumulated in compact per-seam `float`
+//     strip buffers (`prev_seam_flt`, `cur_bot_seam_flt`, `right_col_seam_flt`) — NEVER a full-image float buffer!
+TilePassOutcome run_feathered_tiled_inference(
+    ScopedModelSession& session,
+    int m,
+    int active_tile,
+    bool max_quality,
+    bool active_tta,
+    int sharpness,
+    const std::string& backend_label,
+    const uint8_t* work_ptr,
+    bool work_is_rgba,
+    int work_w,
+    int work_h,
+    size_t work_stride,
+    int model_out_w,
+    bool needs_post_resize,
+    uint8_t* final_rgb_ptr,
+    StreamingLanczos3Resizer* stream_resizer,
+    std::vector<uint8_t>& tile_rgb,
+    std::vector<uint8_t>& tta_scratch_rgb,
+    std::vector<float>& plane_r,
+    std::vector<float>& plane_g,
+    std::vector<float>& plane_b,
+    std::vector<uint8_t>& band_emit_rgb,
+    std::vector<int>* out_x_splits,
+    std::vector<int>* out_y_splits,
+    int* out_fixed_tile_w,
+    int* out_fixed_tile_h,
+    FailureInfo& out_failure,
+    const std::atomic<bool>& cancel_flag,
+    const std::function<void(int completed_subpasses, int total_subpasses)>& on_progress
+) {
+    const int prepad_in = max_quality ? kMaxQualityTilePad : kStandardTilePad;
+    const int overlap_half_in = max_quality ? kMaxQualityOverlapHalfIn : kStandardOverlapHalfIn;
+    const int half_feather_out = overlap_half_in * m;
+    const int feather_out = 2 * half_feather_out;
+    const int min_in_cell = std::max(8, 2 * overlap_half_in + 2);
+
+    const std::vector<int> x_splits = build_grid_splits(work_w, active_tile, min_in_cell);
+    const std::vector<int> y_splits = build_grid_splits(work_h, active_tile, min_in_cell);
+    if (out_x_splits) *out_x_splits = x_splits;
+    if (out_y_splits) *out_y_splits = y_splits;
+
+    const int nx = static_cast<int>(x_splits.size()) - 1;
+    const int ny = static_cast<int>(y_splits.size()) - 1;
+    const int passes_per_tile = active_tta ? 8 : 1;
+    const int total_subpasses = std::max(1, nx * ny * passes_per_tile);
+    int completed_subpasses = 0;
+
+    // Compute uniform padded tile input shape across ALL tiles in this upscale pass.
+    int max_core_in_w = 0;
+    for (int ix = 0; ix < nx; ++ix) {
+        const int in_x0 = x_splits[static_cast<size_t>(ix)] - ((ix > 0) ? overlap_half_in : 0);
+        const int in_x1 = x_splits[static_cast<size_t>(ix + 1)] + ((ix + 1 < nx) ? overlap_half_in : 0);
+        max_core_in_w = std::max(max_core_in_w, in_x1 - in_x0);
+    }
+    int max_core_in_h = 0;
+    for (int iy = 0; iy < ny; ++iy) {
+        const int in_y0 = y_splits[static_cast<size_t>(iy)] - ((iy > 0) ? overlap_half_in : 0);
+        const int in_y1 = y_splits[static_cast<size_t>(iy + 1)] + ((iy + 1 < ny) ? overlap_half_in : 0);
+        max_core_in_h = std::max(max_core_in_h, in_y1 - in_y0);
+    }
+
+    const int align_h = (active_tile >= 96) ? 32 : 16;
+    const int fixed_tile_in_w = align_up_int(max_core_in_w + 2 * prepad_in, 16);
+    const int fixed_tile_in_h = align_up_int(max_core_in_h + 2 * prepad_in, align_h);
+    if (out_fixed_tile_w) *out_fixed_tile_w = fixed_tile_in_w;
+    if (out_fixed_tile_h) *out_fixed_tile_h = fixed_tile_in_h;
+
+    size_t tile_bytes = 0;
+    if (!checked_image_bytes(fixed_tile_in_w, fixed_tile_in_h, 3, tile_bytes)) {
+        out_failure = FailureInfo{
+            EnhancerStatus::ERR_INVALID_ARGS,
+            "checked_image_bytes(fixed_tile_rgb)",
+            0,
+            active_tile,
+            backend_label,
+            0,
+            ""
+        };
+        return TilePassOutcome::FAILED;
+    }
+
+    size_t row_channels = 0;
+    if (!checked_mul_size(static_cast<size_t>(model_out_w), 3u, row_channels)) {
+        out_failure = FailureInfo{
+            EnhancerStatus::ERR_INVALID_ARGS,
+            "checked_mul_size(row_channels)",
+            0,
+            active_tile,
+            backend_label,
+            0,
+            ""
+        };
+        return TilePassOutcome::FAILED;
+    }
+
+    // Small per-seam float overlap strips ONLY (never a full-image float buffer!)
+    std::vector<float> prev_seam_flt;
+    std::vector<float> cur_bot_seam_flt;
+    std::vector<float> right_col_seam_flt;
+
+    try {
+        tile_rgb.assign(tile_bytes, 0u);
+        if (ny > 1) {
+            size_t v_seam_elems = 0;
+            if (!checked_mul_size(static_cast<size_t>(feather_out), row_channels, v_seam_elems)) {
+                throw std::bad_alloc();
+            }
+            prev_seam_flt.assign(v_seam_elems, 0.0f);
+            cur_bot_seam_flt.assign(v_seam_elems, 0.0f);
+        }
+    } catch (const std::bad_alloc&) {
+        const uint64_t approx_bytes = static_cast<uint64_t>(tile_bytes) +
+            2ull * static_cast<uint64_t>(feather_out) * static_cast<uint64_t>(row_channels) * sizeof(float);
+        out_failure = FailureInfo{
+            EnhancerStatus::ERR_OUT_OF_MEMORY,
+            "std::bad_alloc(seam_float_strips)",
+            approx_bytes,
+            active_tile,
+            backend_label,
+            0,
+            ""
+        };
+        return TilePassOutcome::FAILED;
+    }
+
+    int emitted_model_rows = 0;
+
+    for (int iy = 0; iy < ny; ++iy) {
+        const int in_y0 = y_splits[static_cast<size_t>(iy)] - ((iy > 0) ? overlap_half_in : 0);
+        const int in_y1 = y_splits[static_cast<size_t>(iy + 1)] + ((iy + 1 < ny) ? overlap_half_in : 0);
+        const int sy0 = y_splits[static_cast<size_t>(iy)] * m;
+        const int sy1 = y_splits[static_cast<size_t>(iy + 1)] * m;
+        const int vt = (iy > 0) ? half_feather_out : 0;
+        const int vb = (iy + 1 < ny) ? half_feather_out : 0;
+
+        const int band_y0 = in_y0 * m; // == sy0 - vt identically!
+        const int band_y1 = in_y1 * m; // == sy1 + vb identically!
+        const int band_h = band_y1 - band_y0;
+        const int top_seam_rows = 2 * vt;
+        const int bot_seam_rows = 2 * vb;
+        const int emit_rows = band_h - bot_seam_rows;
+
+        if (bot_seam_rows > 0) {
+            std::fill(cur_bot_seam_flt.begin(), cur_bot_seam_flt.end(), 0.0f);
+        }
+
+        if (nx > 1) {
+            size_t h_seam_elems = 0;
+            checked_mul3_size(static_cast<size_t>(band_h), static_cast<size_t>(feather_out), 3u, h_seam_elems);
+            try {
+                right_col_seam_flt.assign(h_seam_elems, 0.0f);
+            } catch (const std::bad_alloc&) {
+                out_failure = FailureInfo{
+                    EnhancerStatus::ERR_OUT_OF_MEMORY,
+                    "std::bad_alloc(right_col_seam_flt)",
+                    static_cast<uint64_t>(h_seam_elems) * sizeof(float),
+                    active_tile,
+                    backend_label,
+                    0,
+                    ""
+                };
+                return TilePassOutcome::FAILED;
+            }
+        }
+
+        uint8_t* emit_dst_base = nullptr;
+        if (emit_rows > 0) {
+            if (!needs_post_resize) {
+                emit_dst_base = final_rgb_ptr + static_cast<size_t>(emitted_model_rows) * row_channels;
+            } else {
+                size_t emit_bytes = 0;
+                checked_mul_size(static_cast<size_t>(emit_rows), row_channels, emit_bytes);
+                try {
+                    if (band_emit_rgb.size() < emit_bytes) {
+                        band_emit_rgb.resize(emit_bytes);
+                    }
+                } catch (const std::bad_alloc&) {
+                    out_failure = FailureInfo{
+                        EnhancerStatus::ERR_OUT_OF_MEMORY,
+                        "std::bad_alloc(band_emit_rgb)",
+                        static_cast<uint64_t>(emit_bytes),
+                        active_tile,
+                        backend_label,
+                        0,
+                        ""
+                    };
+                    return TilePassOutcome::FAILED;
+                }
+                emit_dst_base = band_emit_rgb.data();
+            }
+        }
+
+        for (int ix = 0; ix < nx; ++ix) {
+            if (cancel_flag.load(std::memory_order_relaxed)) {
+                return TilePassOutcome::CANCELLED;
+            }
+
+            const int in_x0 = x_splits[static_cast<size_t>(ix)] - ((ix > 0) ? overlap_half_in : 0);
+            const int in_x1 = x_splits[static_cast<size_t>(ix + 1)] + ((ix + 1 < nx) ? overlap_half_in : 0);
+            const int sx0 = x_splits[static_cast<size_t>(ix)] * m;
+            const int sx1 = x_splits[static_cast<size_t>(ix + 1)] * m;
+            const int hl = (ix > 0) ? half_feather_out : 0;
+            const int hr = (ix + 1 < nx) ? half_feather_out : 0;
+
+            const int ext_x0 = in_x0 * m; // == sx0 - hl identically!
+            const int ext_x1 = in_x1 * m; // == sx1 + hr identically!
+            const int ext_w = ext_x1 - ext_x0;
+
+            const int pad_left = prepad_in;
+            const int pad_top = prepad_in;
+
+            // Zero scratch and populate full uniform tile (`fixed_tile_in_w x fixed_tile_in_h`)
+            // with true symmetric border reflection (`reflect_pad = true`).
+            std::fill(tile_rgb.begin(), tile_rgb.end(), static_cast<uint8_t>(0));
+            fill_padded_tile_rgb(
+                work_ptr,
+                work_is_rgba,
+                work_w,
+                work_h,
+                work_stride,
+                in_x0,
+                in_y0,
+                pad_left,
+                pad_top,
+                fixed_tile_in_w,
+                fixed_tile_in_h,
+                /*reflect_pad=*/true,
+                tile_rgb.data()
+            );
+
+            const TilePassOutcome outcome = run_tile_inference_planar(
+                session,
+                m,
+                active_tile,
+                backend_label,
+                tile_rgb.data(),
+                fixed_tile_in_w,
+                fixed_tile_in_h,
+                active_tta,
+                tta_scratch_rgb,
+                plane_r,
+                plane_g,
+                plane_b,
+                out_failure,
+                cancel_flag,
+                [&](int) {
+                    ++completed_subpasses;
+                    if (on_progress) {
+                        on_progress(completed_subpasses, total_subpasses);
+                    }
+                }
+            );
+
+            if (outcome != TilePassOutcome::OK) {
+                return outcome;
+            }
+
+            const int tile_out_w = fixed_tile_in_w * m;
+            const int tile_out_h = fixed_tile_in_h * m;
+            const int roi_x0 = pad_left * m;
+            const int roi_y0 = pad_top * m;
+
+            if (sharpness > 0) {
+                const uint64_t sharp_bytes =
+                    static_cast<uint64_t>(ext_w) * static_cast<uint64_t>(band_h + 4) * sizeof(float) * 2u;
+                try {
+                    apply_adaptive_unsharp_mask_planar(
+                        plane_r.data(),
+                        plane_g.data(),
+                        plane_b.data(),
+                        tile_out_w,
+                        tile_out_h,
+                        roi_x0,
+                        roi_y0,
+                        roi_x0 + ext_w,
+                        roi_y0 + band_h,
+                        sharpness
+                    );
+                } catch (const std::bad_alloc&) {
+                    out_failure = FailureInfo{
+                        EnhancerStatus::ERR_OUT_OF_MEMORY,
+                        "std::bad_alloc(apply_adaptive_unsharp_mask_planar)",
+                        sharp_bytes,
+                        active_tile,
+                        backend_label,
+                        0,
+                        ""
+                    };
+                    return TilePassOutcome::FAILED;
+                }
+            }
+
+            const int left_ov_w = 2 * hl;
+            const int right_ov_w = 2 * hr;
+            const int ready_w = ext_w - right_ov_w;
+
+            std::vector<float> wx_table(static_cast<size_t>(ext_w));
+            for (int lx = 0; lx < ext_w; ++lx) {
+                wx_table[static_cast<size_t>(lx)] = linear_tent_weight(ext_x0 + lx, sx0, sx1, hl, hr);
+            }
+
+            #pragma omp parallel for schedule(static)
+            for (int by = 0; by < band_h; ++by) {
+                const float wy = linear_tent_weight(band_y0 + by, sy0, sy1, vt, vb);
+                const size_t src_off =
+                    static_cast<size_t>(roi_y0 + by) * static_cast<size_t>(tile_out_w) +
+                    static_cast<size_t>(roi_x0);
+                const float* sr = plane_r.data() + src_off;
+                const float* sg = plane_g.data() + src_off;
+                const float* sb = plane_b.data() + src_off;
+
+                // 1) Blend horizontally complete columns [0 .. ready_w) and apply vertical weight `wy`
+                for (int lx = 0; lx < ready_w; ++lx) {
+                    const int gx = ext_x0 + lx;
+                    const float wx = wx_table[static_cast<size_t>(lx)];
+                    float hr_val = std::clamp(sr[lx], 0.0f, 255.0f) * wx;
+                    float hg_val = std::clamp(sg[lx], 0.0f, 255.0f) * wx;
+                    float hb_val = std::clamp(sb[lx], 0.0f, 255.0f) * wx;
+
+                    if (lx < left_ov_w) {
+                        const float* lseam = right_col_seam_flt.data() +
+                            (static_cast<size_t>(by) * static_cast<size_t>(feather_out) + static_cast<size_t>(lx)) * 3u;
+                        hr_val += lseam[0];
+                        hg_val += lseam[1];
+                        hb_val += lseam[2];
+                    }
+
+                    if (by < emit_rows) {
+                        float fr_val = hr_val * wy;
+                        float fg_val = hg_val * wy;
+                        float fb_val = hb_val * wy;
+                        if (by < top_seam_rows) {
+                            const float* tseam = prev_seam_flt.data() +
+                                static_cast<size_t>(by) * row_channels + static_cast<size_t>(gx) * 3u;
+                            fr_val += tseam[0];
+                            fg_val += tseam[1];
+                            fb_val += tseam[2];
+                        }
+                        uint8_t* dp = emit_dst_base +
+                            static_cast<size_t>(by) * row_channels + static_cast<size_t>(gx) * 3u;
+                        dp[0] = clamp_float_255_to_u8(fr_val);
+                        dp[1] = clamp_float_255_to_u8(fg_val);
+                        dp[2] = clamp_float_255_to_u8(fb_val);
+                    } else {
+                        float* bseam = cur_bot_seam_flt.data() +
+                            static_cast<size_t>(by - emit_rows) * row_channels + static_cast<size_t>(gx) * 3u;
+                        bseam[0] = hr_val * wy;
+                        bseam[1] = hg_val * wy;
+                        bseam[2] = hb_val * wy;
+                    }
+                }
+
+                // 2) Store right horizontal overlap [ready_w .. ext_w) into `right_col_seam_flt` for tile `ix + 1`
+                for (int rx = 0; rx < right_ov_w; ++rx) {
+                    const int lx = ready_w + rx;
+                    const float wx = wx_table[static_cast<size_t>(lx)];
+                    float* rseam = right_col_seam_flt.data() +
+                        (static_cast<size_t>(by) * static_cast<size_t>(feather_out) + static_cast<size_t>(rx)) * 3u;
+                    rseam[0] = std::clamp(sr[lx], 0.0f, 255.0f) * wx;
+                    rseam[1] = std::clamp(sg[lx], 0.0f, 255.0f) * wx;
+                    rseam[2] = std::clamp(sb[lx], 0.0f, 255.0f) * wx;
+                }
+            }
+        }
+
+        if (bot_seam_rows > 0) {
+            prev_seam_flt.swap(cur_bot_seam_flt);
+        }
+
+        if (emit_rows > 0) {
+            if (needs_post_resize && stream_resizer != nullptr) {
+                if (!stream_resizer->push_source_rows(emit_dst_base, emit_rows, cancel_flag)) {
+                    if (cancel_flag.load(std::memory_order_relaxed)) {
+                        return TilePassOutcome::CANCELLED;
+                    }
+                    out_failure = FailureInfo{
+                        EnhancerStatus::ERR_INFERENCE,
+                        "StreamingLanczos3Resizer::push_source_rows",
+                        stream_resizer->ring_bytes(),
+                        active_tile,
+                        backend_label,
+                        0,
+                        ""
+                    };
+                    return TilePassOutcome::FAILED;
+                }
+            }
+            emitted_model_rows += emit_rows;
         }
     }
 
@@ -757,6 +1205,10 @@ UpscaleResult execute_pipeline_internal(
 ) {
     UpscaleResult result;
     UniqueFd owned_output_fd(write_to_fd ? raw_config.output_fd : -1);
+    {
+        // Wait if one-shot startup FP16 calibration is currently running so two Vulkan sessions never overlap.
+        std::lock_guard<std::mutex> wait_calib(g_calib_run_mutex);
+    }
 
     bool bitmap_unlocked = false;
     auto unlock_source_once = [&]() noexcept {
@@ -1214,579 +1666,49 @@ UpscaleResult execute_pipeline_internal(
         }
 
         bool need_retry = false;
-        const int passes_per_tile = active_tta ? 8 : 1;
-
-        if (active_max_quality) {
-            // =========================================================================
-            // MAX QUALITY PATH:
-            //   - 32px reflection prepadding
-            //   - 32px 2D fixed-point (`uint16_t` Q8, 0..65280) feathered overlap blending
-            //     (ZERO multi-tile float buffers anywhere — half the memory of float!)
-            //   - Optional TTA x8 + Optional per-tile adaptive unsharp mask BEFORE blending
-            //   - Band-by-band streaming into `final_rgb` or `StreamingLanczos3Resizer`
-            // =========================================================================
-            const int min_in_cell = std::max(8, (kMaxQualityFeatherOut + m - 1) / m);
-            const std::vector<int> x_splits = build_grid_splits(plan.work_w, active_tile, min_in_cell);
-            const std::vector<int> y_splits = build_grid_splits(plan.work_h, active_tile, min_in_cell);
-            const int nx = static_cast<int>(x_splits.size()) - 1;
-            const int ny = static_cast<int>(y_splits.size()) - 1;
-            const int total_subpasses = std::max(1, nx * ny * passes_per_tile);
-            int completed_subpasses = 0;
-
-            size_t row_channels = 0;
-            checked_mul_size(static_cast<size_t>(plan.model_out_w), 3u, row_channels);
-
-            std::vector<uint16_t> band_accum_q8;
-            std::vector<uint16_t> prev_seam_q8;
-            if (ny > 1) {
-                size_t seam_elems = 0;
-                checked_mul_size(static_cast<size_t>(kMaxQualityFeatherOut), row_channels, seam_elems);
-                try {
-                    prev_seam_q8.assign(seam_elems, 0u);
-                } catch (const std::bad_alloc&) {
-                    step_fail = FailureInfo{
-                        EnhancerStatus::ERR_OUT_OF_MEMORY,
-                        "std::bad_alloc(prev_seam_q8)",
-                        static_cast<uint64_t>(seam_elems) * sizeof(uint16_t),
-                        active_tile,
-                        backend_label,
-                        0,
-                        ""
-                    };
-                    need_retry = true;
-                }
+        const TilePassOutcome tiled_outcome = run_feathered_tiled_inference(
+            session,
+            m,
+            active_tile,
+            active_max_quality,
+            active_tta,
+            config.sharpness,
+            backend_label,
+            work_ptr,
+            work_is_rgba,
+            plan.work_w,
+            plan.work_h,
+            work_stride,
+            plan.model_out_w,
+            plan.needs_post_resize(),
+            final_rgb.get(),
+            plan.needs_post_resize() ? &stream_resizer : nullptr,
+            tile_rgb,
+            tta_scratch_rgb,
+            plane_r,
+            plane_g,
+            plane_b,
+            band_emit_rgb,
+            nullptr,
+            nullptr,
+            nullptr,
+            nullptr,
+            step_fail,
+            cancel_flag,
+            [&](int completed_subpasses, int total_subpasses) {
+                const int pct = progress_start +
+                    ((progress_end - progress_start) * completed_subpasses) / total_subpasses;
+                report_progress(pct, backend_label);
             }
+        );
 
-            int emitted_model_rows = 0;
-
-            for (int iy = 0; iy < ny && !need_retry; ++iy) {
-                const int sy0 = y_splits[static_cast<size_t>(iy)] * m;
-                const int sy1 = y_splits[static_cast<size_t>(iy + 1)] * m;
-                const int vt = (iy > 0) ? kMaxQualityHalfFeather : 0;
-                const int vb = (iy + 1 < ny) ? kMaxQualityHalfFeather : 0;
-
-                const int band_y0 = sy0 - vt;
-                const int band_y1 = sy1 + vb;
-                const int band_h = band_y1 - band_y0;
-
-                size_t band_elems = 0;
-                checked_mul_size(static_cast<size_t>(band_h), row_channels, band_elems);
-                try {
-                    band_accum_q8.assign(band_elems, 0u);
-                } catch (const std::bad_alloc&) {
-                    step_fail = FailureInfo{
-                        EnhancerStatus::ERR_OUT_OF_MEMORY,
-                        "std::bad_alloc(band_accum_q8)",
-                        static_cast<uint64_t>(band_elems) * sizeof(uint16_t),
-                        active_tile,
-                        backend_label,
-                        0,
-                        "band_h=" + std::to_string(band_h) + ", model_out_w=" + std::to_string(plan.model_out_w)
-                    };
-                    need_retry = true;
-                    break;
-                }
-
-                for (int ix = 0; ix < nx; ++ix) {
-                    if (cancel_flag.load(std::memory_order_relaxed)) {
-                        unlock_source_once();
-                        result.status = EnhancerStatus::CANCELLED;
-                        return result;
-                    }
-
-                    const int sx0 = x_splits[static_cast<size_t>(ix)] * m;
-                    const int sx1 = x_splits[static_cast<size_t>(ix + 1)] * m;
-                    const int hl = (ix > 0) ? kMaxQualityHalfFeather : 0;
-                    const int hr = (ix + 1 < nx) ? kMaxQualityHalfFeather : 0;
-
-                    const int ext_x0 = sx0 - hl;
-                    const int ext_x1 = sx1 + hr;
-                    const int ext_w = ext_x1 - ext_x0;
-
-                    const int in_x0 = ext_x0 / m;
-                    const int in_x1 = (ext_x1 + m - 1) / m;
-                    const int in_y0 = band_y0 / m;
-                    const int in_y1 = (band_y1 + m - 1) / m;
-
-                    const int core_in_w = in_x1 - in_x0;
-                    const int core_in_h = in_y1 - in_y0;
-
-                    const int pad_left = kMaxQualityTilePad;
-                    const int pad_top = kMaxQualityTilePad;
-                    int pad_right = kMaxQualityTilePad;
-                    int pad_bottom = kMaxQualityTilePad;
-
-                    if (((core_in_w + pad_left + pad_right) & 1) != 0) {
-                        ++pad_right;
-                    }
-                    if (((core_in_h + pad_top + pad_bottom) & 1) != 0) {
-                        ++pad_bottom;
-                    }
-
-                    const int tile_in_w = core_in_w + pad_left + pad_right;
-                    const int tile_in_h = core_in_h + pad_top + pad_bottom;
-                    size_t tile_bytes = 0;
-                    checked_image_bytes(tile_in_w, tile_in_h, 3, tile_bytes);
-
-                    try {
-                        if (tile_rgb.size() < tile_bytes) {
-                            tile_rgb.resize(tile_bytes);
-                        }
-                    } catch (const std::bad_alloc&) {
-                        step_fail = FailureInfo{
-                            EnhancerStatus::ERR_OUT_OF_MEMORY,
-                            "std::bad_alloc(tile_rgb)",
-                            static_cast<uint64_t>(tile_bytes),
-                            active_tile,
-                            backend_label,
-                            0,
-                            ""
-                        };
-                        need_retry = true;
-                        break;
-                    }
-
-                    fill_padded_tile_rgb(
-                        work_ptr,
-                        work_is_rgba,
-                        plan.work_w,
-                        plan.work_h,
-                        work_stride,
-                        in_x0,
-                        in_y0,
-                        pad_left,
-                        pad_top,
-                        tile_in_w,
-                        tile_in_h,
-                        true,
-                        tile_rgb.data()
-                    );
-
-                    const TilePassOutcome outcome = run_tile_inference_planar(
-                        session,
-                        m,
-                        active_tile,
-                        backend_label,
-                        tile_rgb.data(),
-                        tile_in_w,
-                        tile_in_h,
-                        active_tta,
-                        tta_scratch_rgb,
-                        plane_r,
-                        plane_g,
-                        plane_b,
-                        step_fail,
-                        cancel_flag,
-                        [&](int) {
-                            ++completed_subpasses;
-                            const int pct = progress_start +
-                                ((progress_end - progress_start) * completed_subpasses) / total_subpasses;
-                            report_progress(pct, backend_label);
-                        }
-                    );
-
-                    if (outcome == TilePassOutcome::CANCELLED) {
-                        unlock_source_once();
-                        result.status = EnhancerStatus::CANCELLED;
-                        return result;
-                    }
-                    if (outcome != TilePassOutcome::OK) {
-                        need_retry = true;
-                        break;
-                    }
-
-                    const int tile_out_w = tile_in_w * m;
-                    const int tile_out_h = tile_in_h * m;
-                    const int roi_x0 = pad_left * m + (ext_x0 - in_x0 * m);
-                    const int roi_y0 = pad_top * m + (band_y0 - in_y0 * m);
-
-                    if (config.sharpness > 0) {
-                        const uint64_t sharp_bytes =
-                            static_cast<uint64_t>(ext_w) * static_cast<uint64_t>(band_h + 4) * sizeof(float) * 2u;
-                        try {
-                            apply_adaptive_unsharp_mask_planar(
-                                plane_r.data(),
-                                plane_g.data(),
-                                plane_b.data(),
-                                tile_out_w,
-                                tile_out_h,
-                                roi_x0,
-                                roi_y0,
-                                roi_x0 + ext_w,
-                                roi_y0 + band_h,
-                                config.sharpness
-                            );
-                        } catch (const std::bad_alloc&) {
-                            step_fail = FailureInfo{
-                                EnhancerStatus::ERR_OUT_OF_MEMORY,
-                                "std::bad_alloc(apply_adaptive_unsharp_mask_planar)",
-                                sharp_bytes,
-                                active_tile,
-                                backend_label,
-                                0,
-                                ""
-                            };
-                            need_retry = true;
-                            break;
-                        }
-                    }
-
-                    std::vector<uint32_t> wx_q8_table(static_cast<size_t>(ext_w));
-                    for (int lx = 0; lx < ext_w; ++lx) {
-                        wx_q8_table[static_cast<size_t>(lx)] =
-                            linear_tent_weight_q8(ext_x0 + lx, sx0, sx1, hl, hr);
-                    }
-
-                    #pragma omp parallel for schedule(static)
-                    for (int by = 0; by < band_h; ++by) {
-                        const size_t src_off =
-                            static_cast<size_t>(roi_y0 + by) * static_cast<size_t>(tile_out_w) +
-                            static_cast<size_t>(roi_x0);
-                        const float* sr = plane_r.data() + src_off;
-                        const float* sg = plane_g.data() + src_off;
-                        const float* sb = plane_b.data() + src_off;
-
-                        uint16_t* drow = band_accum_q8.data() +
-                            static_cast<size_t>(by) * row_channels +
-                            static_cast<size_t>(ext_x0) * 3u;
-
-                        for (int lx = 0; lx < ext_w; ++lx) {
-                            const uint32_t wx_q8 = wx_q8_table[static_cast<size_t>(lx)];
-                            const size_t l3 = static_cast<size_t>(lx) * 3u;
-                            drow[l3 + 0] = static_cast<uint16_t>(
-                                std::min<uint32_t>(65280u, static_cast<uint32_t>(drow[l3 + 0]) + clamp_float_255_weighted_q8(sr[lx], wx_q8))
-                            );
-                            drow[l3 + 1] = static_cast<uint16_t>(
-                                std::min<uint32_t>(65280u, static_cast<uint32_t>(drow[l3 + 1]) + clamp_float_255_weighted_q8(sg[lx], wx_q8))
-                            );
-                            drow[l3 + 2] = static_cast<uint16_t>(
-                                std::min<uint32_t>(65280u, static_cast<uint32_t>(drow[l3 + 2]) + clamp_float_255_weighted_q8(sb[lx], wx_q8))
-                            );
-                        }
-                    }
-                }
-
-                if (need_retry) {
-                    break;
-                }
-
-                const int top_seam_rows = 2 * vt;
-                const int bot_seam_rows = 2 * vb;
-                const int emit_rows = band_h - bot_seam_rows;
-
-                for (int by = 0; by < band_h; ++by) {
-                    const uint32_t wy_q8 = linear_tent_weight_q8(band_y0 + by, sy0, sy1, vt, vb);
-                    uint16_t* brow = band_accum_q8.data() + static_cast<size_t>(by) * row_channels;
-
-                    if (by < top_seam_rows) {
-                        const uint16_t* prev_row = prev_seam_q8.data() + static_cast<size_t>(by) * row_channels;
-                        #pragma omp parallel for schedule(static)
-                        for (size_t i = 0; i < row_channels; ++i) {
-                            const uint32_t cur_scaled = (static_cast<uint32_t>(brow[i]) * wy_q8 + 128u) >> 8u;
-                            brow[i] = static_cast<uint16_t>(
-                                std::min<uint32_t>(65280u, static_cast<uint32_t>(prev_row[i]) + cur_scaled)
-                            );
-                        }
-                    } else if (wy_q8 != 256u) {
-                        #pragma omp parallel for schedule(static)
-                        for (size_t i = 0; i < row_channels; ++i) {
-                            brow[i] = static_cast<uint16_t>(
-                                (static_cast<uint32_t>(brow[i]) * wy_q8 + 128u) >> 8u
-                            );
-                        }
-                    }
-                }
-
-                if (bot_seam_rows > 0) {
-                    const uint16_t* bot_src =
-                        band_accum_q8.data() + static_cast<size_t>(emit_rows) * row_channels;
-                    std::memcpy(
-                        prev_seam_q8.data(),
-                        bot_src,
-                        static_cast<size_t>(bot_seam_rows) * row_channels * sizeof(uint16_t)
-                    );
-                }
-
-                if (emit_rows > 0) {
-                    uint8_t* dst_rows_u8 = nullptr;
-                    size_t total_emit_vals = 0;
-                    checked_mul_size(static_cast<size_t>(emit_rows), row_channels, total_emit_vals);
-
-                    if (!plan.needs_post_resize()) {
-                        dst_rows_u8 =
-                            final_rgb.get() + static_cast<size_t>(emitted_model_rows) * row_channels;
-                    } else {
-                        try {
-                            if (band_emit_rgb.size() < total_emit_vals) {
-                                band_emit_rgb.resize(total_emit_vals);
-                            }
-                        } catch (const std::bad_alloc&) {
-                            step_fail = FailureInfo{
-                                EnhancerStatus::ERR_OUT_OF_MEMORY,
-                                "std::bad_alloc(band_emit_rgb)",
-                                static_cast<uint64_t>(total_emit_vals),
-                                active_tile,
-                                backend_label,
-                                0,
-                                ""
-                            };
-                            need_retry = true;
-                            break;
-                        }
-                        dst_rows_u8 = band_emit_rgb.data();
-                    }
-
-                    const uint16_t* emit_src = band_accum_q8.data();
-                    #pragma omp parallel for schedule(static)
-                    for (size_t i = 0; i < total_emit_vals; ++i) {
-                        dst_rows_u8[i] = static_cast<uint8_t>(
-                            std::min<uint32_t>(255u, (static_cast<uint32_t>(emit_src[i]) + 128u) >> 8u)
-                        );
-                    }
-
-                    if (plan.needs_post_resize()) {
-                        if (!stream_resizer.push_source_rows(dst_rows_u8, emit_rows, cancel_flag)) {
-                            if (cancel_flag.load(std::memory_order_relaxed)) {
-                                unlock_source_once();
-                                result.status = EnhancerStatus::CANCELLED;
-                                return result;
-                            }
-                            step_fail = FailureInfo{
-                                EnhancerStatus::ERR_INFERENCE,
-                                "StreamingLanczos3Resizer::push_source_rows",
-                                stream_resizer.ring_bytes(),
-                                active_tile,
-                                backend_label,
-                                0,
-                                ""
-                            };
-                            need_retry = true;
-                            break;
-                        }
-                    }
-                    emitted_model_rows += emit_rows;
-                }
-            }
-        } else {
-            // =========================================================================
-            // STANDARD PATH:
-            //   - 10px clamped prepadding + exact core crop directly into `final_rgb`
-            //     (or single tile-row `band_emit_rgb` when Rule 3 Lanczos3 upscale applies)
-            //   - Per-tile float buffers ONLY
-            // =========================================================================
-            const int tiles_x = (plan.work_w + active_tile - 1) / active_tile;
-            const int tiles_y = (plan.work_h + active_tile - 1) / active_tile;
-            const int total_subpasses = std::max(1, tiles_x * tiles_y * passes_per_tile);
-            int completed_subpasses = 0;
-
-            const size_t model_row_bytes = static_cast<size_t>(plan.model_out_w) * 3u;
-
-            for (int ty = 0; ty < tiles_y && !need_retry; ++ty) {
-                const int ry0 = ty * active_tile;
-                const int rh = std::min(active_tile, plan.work_h - ry0);
-                const int core_band_h = rh * m;
-
-                uint8_t* band_base = nullptr;
-                if (!plan.needs_post_resize()) {
-                    band_base = final_rgb.get() +
-                        static_cast<size_t>(ry0 * m) * model_row_bytes;
-                } else {
-                    size_t band_bytes = 0;
-                    checked_mul_size(static_cast<size_t>(core_band_h), model_row_bytes, band_bytes);
-                    try {
-                        if (band_emit_rgb.size() < band_bytes) {
-                            band_emit_rgb.resize(band_bytes);
-                        }
-                    } catch (const std::bad_alloc&) {
-                        step_fail = FailureInfo{
-                            EnhancerStatus::ERR_OUT_OF_MEMORY,
-                            "std::bad_alloc(band_emit_rgb)",
-                            static_cast<uint64_t>(band_bytes),
-                            active_tile,
-                            backend_label,
-                            0,
-                            ""
-                        };
-                        need_retry = true;
-                        break;
-                    }
-                    band_base = band_emit_rgb.data();
-                }
-
-                for (int tx = 0; tx < tiles_x; ++tx) {
-                    if (cancel_flag.load(std::memory_order_relaxed)) {
-                        unlock_source_once();
-                        result.status = EnhancerStatus::CANCELLED;
-                        return result;
-                    }
-
-                    const int rx0 = tx * active_tile;
-                    const int rw = std::min(active_tile, plan.work_w - rx0);
-
-                    const int pad_left = kStandardTilePad;
-                    const int pad_top = kStandardTilePad;
-                    int pad_right = kStandardTilePad;
-                    int pad_bottom = kStandardTilePad;
-
-                    if (((rw + pad_left + pad_right) & 1) != 0) {
-                        ++pad_right;
-                    }
-                    if (((rh + pad_top + pad_bottom) & 1) != 0) {
-                        ++pad_bottom;
-                    }
-
-                    const int tile_in_w = rw + pad_left + pad_right;
-                    const int tile_in_h = rh + pad_top + pad_bottom;
-                    size_t tile_bytes = 0;
-                    checked_image_bytes(tile_in_w, tile_in_h, 3, tile_bytes);
-
-                    try {
-                        if (tile_rgb.size() < tile_bytes) {
-                            tile_rgb.resize(tile_bytes);
-                        }
-                    } catch (const std::bad_alloc&) {
-                        step_fail = FailureInfo{
-                            EnhancerStatus::ERR_OUT_OF_MEMORY,
-                            "std::bad_alloc(tile_rgb)",
-                            static_cast<uint64_t>(tile_bytes),
-                            active_tile,
-                            backend_label,
-                            0,
-                            ""
-                        };
-                        need_retry = true;
-                        break;
-                    }
-
-                    fill_padded_tile_rgb(
-                        work_ptr,
-                        work_is_rgba,
-                        plan.work_w,
-                        plan.work_h,
-                        work_stride,
-                        rx0,
-                        ry0,
-                        pad_left,
-                        pad_top,
-                        tile_in_w,
-                        tile_in_h,
-                        false,
-                        tile_rgb.data()
-                    );
-
-                    const TilePassOutcome outcome = run_tile_inference_planar(
-                        session,
-                        m,
-                        active_tile,
-                        backend_label,
-                        tile_rgb.data(),
-                        tile_in_w,
-                        tile_in_h,
-                        active_tta,
-                        tta_scratch_rgb,
-                        plane_r,
-                        plane_g,
-                        plane_b,
-                        step_fail,
-                        cancel_flag,
-                        [&](int) {
-                            ++completed_subpasses;
-                            const int pct = progress_start +
-                                ((progress_end - progress_start) * completed_subpasses) / total_subpasses;
-                            report_progress(pct, backend_label);
-                        }
-                    );
-
-                    if (outcome == TilePassOutcome::CANCELLED) {
-                        unlock_source_once();
-                        result.status = EnhancerStatus::CANCELLED;
-                        return result;
-                    }
-                    if (outcome != TilePassOutcome::OK) {
-                        need_retry = true;
-                        break;
-                    }
-
-                    const int tile_out_w = tile_in_w * m;
-                    const int tile_out_h = tile_in_h * m;
-                    const int crop_x0 = pad_left * m;
-                    const int crop_y0 = pad_top * m;
-                    const int core_out_w = rw * m;
-                    const int core_out_h = rh * m;
-
-                    if (config.sharpness > 0) {
-                        const uint64_t sharp_bytes =
-                            static_cast<uint64_t>(core_out_w) * static_cast<uint64_t>(core_out_h + 4) * sizeof(float) * 2u;
-                        try {
-                            apply_adaptive_unsharp_mask_planar(
-                                plane_r.data(),
-                                plane_g.data(),
-                                plane_b.data(),
-                                tile_out_w,
-                                tile_out_h,
-                                crop_x0,
-                                crop_y0,
-                                crop_x0 + core_out_w,
-                                crop_y0 + core_out_h,
-                                config.sharpness
-                            );
-                        } catch (const std::bad_alloc&) {
-                            step_fail = FailureInfo{
-                                EnhancerStatus::ERR_OUT_OF_MEMORY,
-                                "std::bad_alloc(apply_adaptive_unsharp_mask_planar)",
-                                sharp_bytes,
-                                active_tile,
-                                backend_label,
-                                0,
-                                ""
-                            };
-                            need_retry = true;
-                            break;
-                        }
-                    }
-
-                    const size_t dst_x0 = static_cast<size_t>(rx0 * m);
-                    for (int oy = 0; oy < core_out_h; ++oy) {
-                        const size_t src_off =
-                            static_cast<size_t>(crop_y0 + oy) * static_cast<size_t>(tile_out_w) +
-                            static_cast<size_t>(crop_x0);
-                        const float* sr = plane_r.data() + src_off;
-                        const float* sg = plane_g.data() + src_off;
-                        const float* sb = plane_b.data() + src_off;
-
-                        uint8_t* dst_row = band_base +
-                            static_cast<size_t>(oy) * model_row_bytes +
-                            dst_x0 * 3u;
-                        for (int ox = 0; ox < core_out_w; ++ox) {
-                            const size_t ox3 = static_cast<size_t>(ox) * 3u;
-                            dst_row[ox3 + 0] = clamp_float_255_to_u8(sr[ox]);
-                            dst_row[ox3 + 1] = clamp_float_255_to_u8(sg[ox]);
-                            dst_row[ox3 + 2] = clamp_float_255_to_u8(sb[ox]);
-                        }
-                    }
-                }
-
-                if (!need_retry && plan.needs_post_resize()) {
-                    if (!stream_resizer.push_source_rows(band_base, core_band_h, cancel_flag)) {
-                        if (cancel_flag.load(std::memory_order_relaxed)) {
-                            unlock_source_once();
-                            result.status = EnhancerStatus::CANCELLED;
-                            return result;
-                        }
-                        step_fail = FailureInfo{
-                            EnhancerStatus::ERR_INFERENCE,
-                            "StreamingLanczos3Resizer::push_source_rows",
-                            stream_resizer.ring_bytes(),
-                            active_tile,
-                            backend_label,
-                            0,
-                            ""
-                        };
-                        need_retry = true;
-                        break;
-                    }
-                }
-            }
+        if (tiled_outcome == TilePassOutcome::CANCELLED) {
+            unlock_source_once();
+            result.status = EnhancerStatus::CANCELLED;
+            return result;
+        }
+        if (tiled_outcome != TilePassOutcome::OK) {
+            need_retry = true;
         }
 
         if (need_retry) {
@@ -1915,26 +1837,268 @@ std::string query_vulkan_device_info() {
     return "CPU only";
 }
 
+bool should_default_disable_fp16_sync() noexcept {
+    {
+        std::lock_guard<std::mutex> lock(g_fp16_calib_mutex);
+        if (g_fp16_calib_done) {
+            return g_fp16_calib_report.recommend_disable_fp16;
+        }
+    }
+    int create_rc = 0;
+    if (!ensure_vulkan_ready(&create_rc)) {
+        return false;
+    }
+    const int def_idx = ncnn::get_default_gpu_index();
+    if (def_idx < 0) {
+        return false;
+    }
+    const ncnn::GpuInfo& info = ncnn::get_gpu_info(def_idx);
+    const char* raw_name = info.device_name();
+    const std::string dev_name = (raw_name && raw_name[0] != '\0') ? raw_name : "";
+    return is_adreno_gpu(info.vendor_id(), dev_name);
+}
+
+Fp16CalibrationReport calibrate_vulkan_fp16_policy(AAssetManager* asset_manager) {
+    std::lock_guard<std::mutex> run_lock(g_calib_run_mutex);
+    {
+        std::lock_guard<std::mutex> lock(g_fp16_calib_mutex);
+        if (g_fp16_calib_done) {
+            return g_fp16_calib_report;
+        }
+    }
+
+    Fp16CalibrationReport report;
+    int create_rc = 0;
+    const bool vk_ok = ensure_vulkan_ready(&create_rc);
+    if (!vk_ok) {
+        report.vulkan_available = false;
+        report.is_adreno = false;
+        report.recommend_disable_fp16 = false;
+        report.reason = "FP16 default: N/A — CPU FP32 backend (no Vulkan GPU detected)";
+        std::lock_guard<std::mutex> lock(g_fp16_calib_mutex);
+        g_fp16_calib_report = report;
+        g_fp16_calib_done = true;
+        return report;
+    }
+
+    const int def_idx = ncnn::get_default_gpu_index();
+    if (def_idx < 0) {
+        report.vulkan_available = false;
+        report.recommend_disable_fp16 = false;
+        report.reason = "FP16 default: N/A — default Vulkan GPU index < 0";
+        std::lock_guard<std::mutex> lock(g_fp16_calib_mutex);
+        g_fp16_calib_report = report;
+        g_fp16_calib_done = true;
+        return report;
+    }
+
+    const ncnn::GpuInfo& info = ncnn::get_gpu_info(def_idx);
+    const char* raw_name = info.device_name();
+    report.vulkan_available = true;
+    report.vendor_id = info.vendor_id();
+    report.gpu_name = (raw_name && raw_name[0] != '\0') ? raw_name : "GPU";
+    report.is_adreno = is_adreno_gpu(report.vendor_id, report.gpu_name);
+
+    // Run lightweight 2-tile calibration (96x96 vs 64x96 over identical smooth interior patch)
+    // comparing Vulkan fp16 ON and Vulkan fp16 OFF against CPU FP32 reference.
+    if (asset_manager != nullptr) {
+        constexpr int kBigW = 96;
+        constexpr int kBigH = 96;
+        constexpr int kSmallW = 64;
+        constexpr int kSmallH = 96;
+
+        std::vector<uint8_t> big_rgb(static_cast<size_t>(kBigW * kBigH * 3), 0u);
+        std::vector<uint8_t> small_rgb(static_cast<size_t>(kSmallW * kSmallH * 3), 0u);
+
+        for (int y = 0; y < kBigH; ++y) {
+            for (int x = 0; x < kBigW; ++x) {
+                const bool bright_floor = (y >= kBigH / 2);
+                const uint8_t base = bright_floor
+                    ? static_cast<uint8_t>(216 + (x * 20) / kBigW)
+                    : static_cast<uint8_t>(128 + (y * 16) / kBigH);
+                const size_t idx = static_cast<size_t>(y * kBigW + x) * 3u;
+                big_rgb[idx + 0] = base;
+                big_rgb[idx + 1] = base;
+                big_rgb[idx + 2] = static_cast<uint8_t>( std::min(255, static_cast<int>(base) + 2) );
+                if (x < kSmallW) {
+                    const size_t sidx = static_cast<size_t>(y * kSmallW + x) * 3u;
+                    small_rgb[sidx + 0] = big_rgb[idx + 0];
+                    small_rgb[sidx + 1] = big_rgb[idx + 1];
+                    small_rgb[sidx + 2] = big_rgb[idx + 2];
+                }
+            }
+        }
+
+        auto run_patch = [&](bool use_vk, bool disable_fp16, const uint8_t* rgb, int w, int h,
+                             std::vector<float>& pr, std::vector<float>& pg, std::vector<float>& pb) -> bool {
+            UpscaleConfig cfg;
+            cfg.param_asset_path = "models/realesrgan-x4plus.param";
+            cfg.bin_asset_path = "models/realesrgan-x4plus.bin";
+            cfg.model_scale = 4;
+            cfg.disable_fp16 = disable_fp16;
+            cfg.force_cpu = !use_vk;
+
+            ScopedModelSession sess;
+            std::string backend_lbl;
+            uint32_t budget_mb = 0;
+            FailureInfo fail;
+            if (!sess.init(asset_manager, cfg, use_vk, 64, backend_lbl, budget_mb, fail)) {
+                return false;
+            }
+            std::vector<uint8_t> tta_tmp;
+            std::atomic<bool> never_cancel{false};
+            const TilePassOutcome rc = run_tile_inference_planar(
+                sess, 4, 64, backend_lbl, rgb, w, h, false,
+                tta_tmp, pr, pg, pb, fail, never_cancel, nullptr
+            );
+            return rc == TilePassOutcome::OK;
+        };
+
+        std::vector<float> cpu_r, cpu_g, cpu_b;
+        std::vector<float> vk16_big_r, vk16_big_g, vk16_big_b;
+        std::vector<float> vk16_sm_r, vk16_sm_g, vk16_sm_b;
+        std::vector<float> vk32_big_r, vk32_big_g, vk32_big_b;
+
+        const bool ok_cpu = run_patch(false, true, big_rgb.data(), kBigW, kBigH, cpu_r, cpu_g, cpu_b);
+        const bool ok_vk16_big = ok_cpu &&
+            run_patch(true, false, big_rgb.data(), kBigW, kBigH, vk16_big_r, vk16_big_g, vk16_big_b);
+        const bool ok_vk16_sm = ok_vk16_big &&
+            run_patch(true, false, small_rgb.data(), kSmallW, kSmallH, vk16_sm_r, vk16_sm_g, vk16_sm_b);
+        const bool ok_vk32_big = ok_cpu &&
+            run_patch(true, true, big_rgb.data(), kBigW, kBigH, vk32_big_r, vk32_big_g, vk32_big_b);
+
+        if (ok_cpu && ok_vk16_big && ok_vk16_sm && ok_vk32_big) {
+            // Compare shared interior ROI [in_x = 16..40, in_y = 16..80] -> [out_x = 64..160, out_y = 64..320]
+            constexpr int kOx0 = 64;
+            constexpr int kOx1 = 160;
+            constexpr int kOy0 = 64;
+            constexpr int kOy1 = 320;
+            constexpr int kBigOutW = kBigW * 4;
+            constexpr int kSmallOutW = kSmallW * 4;
+
+            double sum_16_cpu = 0.0;
+            double max_16_cpu = 0.0;
+            double sum_32_cpu = 0.0;
+            double sum_16_big = 0.0;
+            double sum_16_sm = 0.0;
+            size_t cnt = 0;
+
+            for (int oy = kOy0; oy < kOy1; ++oy) {
+                for (int ox = kOx0; ox < kOx1; ++ox) {
+                    const size_t bi = static_cast<size_t>(oy * kBigOutW + ox);
+                    const size_t si = static_cast<size_t>(oy * kSmallOutW + ox);
+
+                    const double c_lum = (cpu_r[bi] + cpu_g[bi] + cpu_b[bi]) / 3.0;
+                    const double v16_lum = (vk16_big_r[bi] + vk16_big_g[bi] + vk16_big_b[bi]) / 3.0;
+                    const double v16s_lum = (vk16_sm_r[si] + vk16_sm_g[si] + vk16_sm_b[si]) / 3.0;
+                    const double v32_lum = (vk32_big_r[bi] + vk32_big_g[bi] + vk32_big_b[bi]) / 3.0;
+
+                    const double d16 = std::abs(v16_lum - c_lum);
+                    const double d32 = std::abs(v32_lum - c_lum);
+                    sum_16_cpu += d16;
+                    max_16_cpu = std::max(max_16_cpu, d16);
+                    sum_32_cpu += d32;
+                    sum_16_big += v16_lum;
+                    sum_16_sm += v16s_lum;
+                    ++cnt;
+                }
+            }
+
+            if (cnt > 0) {
+                report.fp16_vs_cpu_mean_diff = static_cast<float>(sum_16_cpu / static_cast<double>(cnt));
+                report.fp16_vs_cpu_max_diff = static_cast<float>(max_16_cpu);
+                report.fp32_vs_cpu_mean_diff = static_cast<float>(sum_32_cpu / static_cast<double>(cnt));
+                report.fp16_inter_tile_diff = static_cast<float>(
+                    std::abs(sum_16_big - sum_16_sm) / static_cast<double>(cnt)
+                );
+            }
+
+            const bool fp16_drifts =
+                report.fp16_vs_cpu_mean_diff > 0.50f ||
+                report.fp16_vs_cpu_max_diff > 2.0f ||
+                report.fp16_inter_tile_diff > 0.25f;
+
+            report.recommend_disable_fp16 = report.is_adreno || fp16_drifts;
+            if (report.recommend_disable_fp16) {
+                report.reason = "FP16 default: OFF (" +
+                    std::string(report.is_adreno ? "Qualcomm Adreno " : "FP16 drift detected on ") +
+                    report.gpu_name + " [" + format_hex32(report.vendor_id) + "]; " +
+                    "vk_fp16 vs CPU mean=" + format_fixed(report.fp16_vs_cpu_mean_diff, 2) +
+                    " max=" + format_fixed(report.fp16_vs_cpu_max_diff, 2) +
+                    " tileShift=" + format_fixed(report.fp16_inter_tile_diff, 2) +
+                    ", vk_fp32 vs CPU mean=" + format_fixed(report.fp32_vs_cpu_mean_diff, 2) + " lvl)";
+            } else {
+                report.reason = "FP16 default: ON (" + report.gpu_name +
+                    " [" + format_hex32(report.vendor_id) + "] calibrated vs CPU: " +
+                    "vk_fp16 mean=" + format_fixed(report.fp16_vs_cpu_mean_diff, 2) +
+                    " max=" + format_fixed(report.fp16_vs_cpu_max_diff, 2) +
+                    " tileShift=" + format_fixed(report.fp16_inter_tile_diff, 2) + " lvl)";
+            }
+
+            std::lock_guard<std::mutex> lock(g_fp16_calib_mutex);
+            g_fp16_calib_report = report;
+            g_fp16_calib_done = true;
+            return report;
+        }
+    }
+
+    report.recommend_disable_fp16 = report.is_adreno;
+    if (report.is_adreno) {
+        report.reason = "FP16 default: OFF — Qualcomm Adreno GPU detected (" +
+            report.gpu_name + " [" + format_hex32(report.vendor_id) + "])";
+    } else {
+        report.reason = "FP16 default: ON — " + report.gpu_name +
+            " [" + format_hex32(report.vendor_id) + "]";
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_fp16_calib_mutex);
+        g_fp16_calib_report = report;
+        g_fp16_calib_done = true;
+    }
+    return report;
+}
+
 std::string query_vulkan_diagnostics_summary() {
     int create_rc = 0;
     const bool vk_ok = ensure_vulkan_ready(&create_rc);
     const int big_cores = ncnn::get_big_cpu_count();
     const int total_cores = ncnn::get_cpu_count();
 
+    std::string fp16_line;
+    {
+        std::lock_guard<std::mutex> lock(g_fp16_calib_mutex);
+        if (g_fp16_calib_done && !g_fp16_calib_report.reason.empty()) {
+            fp16_line = g_fp16_calib_report.reason;
+        }
+    }
+
     if (vk_ok) {
         const int def_idx = ncnn::get_default_gpu_index();
         ncnn::VulkanDevice* vkdev = (def_idx >= 0) ? ncnn::get_gpu_device(def_idx) : nullptr;
+        const uint32_t vendor_id = (def_idx >= 0) ? ncnn::get_gpu_info(def_idx).vendor_id() : 0u;
         const char* name = (def_idx >= 0) ? ncnn::get_gpu_info(def_idx).device_name() : nullptr;
+        const std::string dev_name = (name && name[0] != '\0') ? name : "GPU";
         const uint32_t budget_mb = vkdev ? vkdev->get_heap_budget() : 0u;
-        return std::string("Vulkan GPU: ") + ((name && name[0] != '\0') ? name : "GPU") +
+        if (fp16_line.empty()) {
+            fp16_line = is_adreno_gpu(vendor_id, dev_name)
+                ? ("FP16 default: OFF — Qualcomm Adreno GPU detected (" + dev_name + " [" + format_hex32(vendor_id) + "])")
+                : ("FP16 default: ON — " + dev_name + " [" + format_hex32(vendor_id) + "]");
+        }
+        return "Vulkan GPU: " + dev_name + " [" + format_hex32(vendor_id) + "]" +
             " | GPU Heap Budget: " + std::to_string(budget_mb) + " MB" +
             " | create_gpu_instance rc=" + std::to_string(create_rc) +
-            " | CPU Cores: " + std::to_string(big_cores) + " big / " + std::to_string(total_cores) + " total";
+            " | CPU Cores: " + std::to_string(big_cores) + " big / " + std::to_string(total_cores) + " total\n" +
+            fp16_line;
     }
 
+    if (fp16_line.empty()) {
+        fp16_line = "FP16 default: N/A — CPU FP32 backend (no Vulkan GPU detected)";
+    }
     return "Vulkan unavailable (create_gpu_instance rc=" + std::to_string(create_rc) +
         ", gpu_count=" + std::to_string(g_vulkan_instance_created ? ncnn::get_gpu_count() : 0) + ")" +
-        " | CPU Cores: " + std::to_string(big_cores) + " big / " + std::to_string(total_cores) + " total";
+        " | CPU Cores: " + std::to_string(big_cores) + " big / " + std::to_string(total_cores) + " total\n" +
+        fp16_line;
 }
 
 void shutdown_vulkan_runtime() noexcept {
@@ -2064,6 +2228,520 @@ SelfTestReport run_native_self_test(AAssetManager* asset_manager) {
         "[Vulkan] " + report.vulkan.detail + "\n" +
         "[CPU]    " + report.cpu.detail;
     LOGI("%s", report.full_log.c_str());
+    return report;
+}
+
+SeamTestReport run_native_seam_test(
+    AAssetManager* asset_manager,
+    const std::atomic<bool>& cancel_flag,
+    const SeamTestProgressCallback& progress_cb
+) {
+    SeamTestReport report;
+    report.fp16_calibration = calibrate_vulkan_fp16_policy(asset_manager);
+
+    constexpr int kInW = 700;
+    constexpr int kInH = 500;
+    constexpr int kScale = 4;
+    constexpr int kOutW = kInW * kScale; // 2800
+    constexpr int kOutH = kInH * kScale; // 2000
+    constexpr size_t kSrcStride = static_cast<size_t>(kInW) * 4u;
+    constexpr size_t kSrcBytes = kSrcStride * static_cast<size_t>(kInH);
+    constexpr size_t kOutBytes = static_cast<size_t>(kOutW) * static_cast<size_t>(kOutH) * 3u;
+
+    NativeByteBuffer synth_rgba = allocate_native_buffer(kSrcBytes);
+    // Single full-size output RGB buffer reused across every test case (16.8 MB).
+    NativeByteBuffer out_rgb = allocate_native_buffer(kOutBytes);
+    if (!synth_rgba || !out_rgb) {
+        report.status = EnhancerStatus::ERR_OUT_OF_MEMORY;
+        report.summary = "FAIL — Out of memory allocating 700x500->2800x2000 Seam Test buffers";
+        report.formatted_table = report.summary;
+        return report;
+    }
+
+    // Generate 700x500 smooth synthetic RGBA test scene:
+    //   1) Flat mid-gray studio wall [x < 360, y < 280] (crosses vertical & horizontal splits)
+    //   2) Soft smooth wall gradient [x >= 360, y < 280] (tests right-edge smoothness)
+    //   3) Bright glossy-floor zone [y >= 280]: flat bright floor [x < 400] + soft specular floor sheen
+    //      [x >= 400] (tests bottom-row & right-column glossy floor continuity)
+    for (int y = 0; y < kInH; ++y) {
+        uint8_t* row = synth_rgba.get() + static_cast<size_t>(y) * kSrcStride;
+        for (int x = 0; x < kInW; ++x) {
+            uint8_t r = 128u;
+            uint8_t g = 128u;
+            uint8_t b = 130u;
+
+            if (y < 280) {
+                if (x < 360) {
+                    r = 128u;
+                    g = 128u;
+                    b = 130u;
+                } else {
+                    const float tx = static_cast<float>(x - 360) / 340.0f;
+                    const float ty = static_cast<float>(y) / 280.0f;
+                    const float v = 128.0f + 56.0f * (tx * tx * (3.0f - 2.0f * tx)) + 16.0f * ty;
+                    r = clamp_float_255_to_u8(v);
+                    g = clamp_float_255_to_u8(v);
+                    b = clamp_float_255_to_u8(v + 2.0f);
+                }
+            } else {
+                if (x < 400) {
+                    // Flat bright glossy floor spanning bottom tile split y=333/375 and vertical splits
+                    r = 224u;
+                    g = 222u;
+                    b = 218u;
+                } else {
+                    // Smooth bright glossy floor highlight near right edge & bottom corner
+                    const float tx = static_cast<float>(x - 400) / 300.0f;
+                    const float ty = static_cast<float>(y - 280) / 220.0f;
+                    const float sheen = 20.0f * (tx * tx * (3.0f - 2.0f * tx)) * (0.5f + 0.5f * ty);
+                    r = clamp_float_255_to_u8(224.0f + sheen);
+                    g = clamp_float_255_to_u8(222.0f + sheen);
+                    b = clamp_float_255_to_u8(218.0f + sheen);
+                }
+            }
+
+            const size_t x4 = static_cast<size_t>(x) * 4u;
+            row[x4 + 0] = r;
+            row[x4 + 1] = g;
+            row[x4 + 2] = b;
+            row[x4 + 3] = 255u;
+        }
+    }
+
+    // Precompute strict smooth-area mask at input resolution (33x33 source window has zero step)
+    // so smooth-area boundary jump evaluation is immune to 1-LSB input quantization terraces.
+    std::vector<uint8_t> in_smooth_mask(static_cast<size_t>(kInW * kInH), 0u);
+    for (int y = 0; y < kInH; ++y) {
+        for (int x = 0; x < kInW; ++x) {
+            const int x0 = std::max(0, x - 16);
+            const int x1 = std::min(kInW - 1, x + 16);
+            const int y0 = std::max(0, y - 16);
+            const int y1 = std::min(kInH - 1, y + 16);
+            const uint8_t* p0 = synth_rgba.get() + static_cast<size_t>(y) * kSrcStride + static_cast<size_t>(x) * 4u;
+            bool flat = true;
+            for (int yy = y0; yy <= y1 && flat; ++yy) {
+                const uint8_t* rptr = synth_rgba.get() + static_cast<size_t>(yy) * kSrcStride;
+                for (int xx = x0; xx <= x1; ++xx) {
+                    const uint8_t* q = rptr + static_cast<size_t>(xx) * 4u;
+                    if (q[0] != p0[0] || q[1] != p0[1] || q[2] != p0[2]) {
+                        flat = false;
+                        break;
+                    }
+                }
+            }
+            if (flat) {
+                in_smooth_mask[static_cast<size_t>(y * kInW + x)] = 1u;
+            }
+        }
+    }
+
+    struct BackendSpec {
+        bool use_vulkan;
+        const char* name;
+    };
+    const BackendSpec kBackends[2] = {
+        {true, "Vulkan"},
+        {false, "CPU"}
+    };
+    const bool kFp16Modes[2] = {true, false};
+    const bool kMaxQModes[2] = {false, true};
+    const int kTileSizes[3] = {128, 200, 256};
+    constexpr int kTotalCases = 2 * 2 * 2 * 3; // 24 cases
+
+    std::vector<uint8_t> tile_rgb;
+    std::vector<uint8_t> tta_scratch_rgb;
+    std::vector<float> plane_r;
+    std::vector<float> plane_g;
+    std::vector<float> plane_b;
+    std::vector<uint8_t> band_emit_rgb;
+
+    // Compact 280x200 subsampled RGB snapshot (168 KB, NOT a full-size buffer) for Vulkan vs CPU drift report
+    constexpr int kSnapW = kOutW / 10;
+    constexpr int kSnapH = kOutH / 10;
+    std::vector<uint8_t> vk_fp16_snap;
+    std::vector<uint8_t> vk_fp32_snap;
+    std::vector<uint8_t> cpu_fp32_snap;
+
+    int case_idx = 0;
+
+    // Evaluate CPU first so `cpu_fp32_snap` is ready, or run in order and compute snapshot diffs after loop!
+    for (const BackendSpec& bspec : kBackends) {
+        for (bool fp16_on : kFp16Modes) {
+            if (cancel_flag.load(std::memory_order_relaxed)) {
+                report.status = EnhancerStatus::CANCELLED;
+                report.summary = "Cancelled";
+                report.formatted_table = "Seam test cancelled.";
+                return report;
+            }
+
+            UpscaleConfig cfg;
+            cfg.param_asset_path = "models/realesrgan-x4plus.param";
+            cfg.bin_asset_path = "models/realesrgan-x4plus.bin";
+            cfg.model_scale = kScale;
+            cfg.disable_fp16 = !fp16_on;
+            cfg.force_cpu = !bspec.use_vulkan;
+            cfg.sharpness = 0;
+
+            ScopedModelSession session;
+            std::string backend_lbl;
+            uint32_t budget_mb = 0;
+            FailureInfo init_fail;
+            const bool sess_ok = session.init(
+                asset_manager, cfg, bspec.use_vulkan, 200, backend_lbl, budget_mb, init_fail
+            );
+
+            for (bool max_q : kMaxQModes) {
+                for (int tile_sz : kTileSizes) {
+                    if (cancel_flag.load(std::memory_order_relaxed)) {
+                        report.status = EnhancerStatus::CANCELLED;
+                        report.summary = "Cancelled";
+                        report.formatted_table = "Seam test cancelled.";
+                        return report;
+                    }
+
+                    const int cur_case_num = case_idx + 1;
+                    const std::string case_label = std::string(bspec.name) +
+                        " | fp16=" + (fp16_on ? "ON" : "OFF") +
+                        " | MaxQ=" + (max_q ? "ON" : "OFF") +
+                        " | tile=" + std::to_string(tile_sz);
+
+                    if (progress_cb) {
+                        progress_cb(case_idx, kTotalCases, case_label);
+                    }
+
+                    SeamTestCaseRow row;
+                    row.backend = bspec.name;
+                    row.fp16_enabled = fp16_on;
+                    row.max_quality = max_q;
+                    row.tile_size = tile_sz;
+
+                    if (!sess_ok) {
+                        row.backend_available = false;
+                        row.passed = false;
+                        row.note = bspec.use_vulkan ? "N/A (no Vulkan GPU)" : ("INIT FAIL: " + init_fail.step);
+                        report.rows.push_back(row);
+                        ++case_idx;
+                        continue;
+                    }
+
+                    row.backend_available = true;
+                    std::memset(out_rgb.get(), 0, kOutBytes);
+
+                    std::vector<int> x_splits;
+                    std::vector<int> y_splits;
+                    int fixed_tw = 0;
+                    int fixed_th = 0;
+                    FailureInfo run_fail;
+
+                    const auto t0 = std::chrono::steady_clock::now();
+                    const TilePassOutcome rc = run_feathered_tiled_inference(
+                        session,
+                        kScale,
+                        tile_sz,
+                        max_q,
+                        /*active_tta=*/false,
+                        /*sharpness=*/0,
+                        backend_lbl,
+                        synth_rgba.get(),
+                        /*work_is_rgba=*/true,
+                        kInW,
+                        kInH,
+                        kSrcStride,
+                        kOutW,
+                        /*needs_post_resize=*/false,
+                        out_rgb.get(),
+                        nullptr,
+                        tile_rgb,
+                        tta_scratch_rgb,
+                        plane_r,
+                        plane_g,
+                        plane_b,
+                        band_emit_rgb,
+                        &x_splits,
+                        &y_splits,
+                        &fixed_tw,
+                        &fixed_th,
+                        run_fail,
+                        cancel_flag,
+                        [&](int done_sub, int tot_sub) {
+                            if (progress_cb) {
+                                progress_cb(
+                                    case_idx,
+                                    kTotalCases,
+                                    case_label + " (" + std::to_string(done_sub) + "/" + std::to_string(tot_sub) + ")"
+                                );
+                            }
+                        }
+                    );
+                    const auto t1 = std::chrono::steady_clock::now();
+                    row.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+
+                    if (rc == TilePassOutcome::CANCELLED) {
+                        report.status = EnhancerStatus::CANCELLED;
+                        report.summary = "Cancelled";
+                        report.formatted_table = "Seam test cancelled.";
+                        return report;
+                    }
+                    if (rc != TilePassOutcome::OK) {
+                        row.passed = false;
+                        row.note = "ERR: " + run_fail.step;
+                        report.rows.push_back(row);
+                        ++case_idx;
+                        continue;
+                    }
+
+                    // Capture compact 10x10-strided snapshot for tile=200, MaxQ=OFF to quantify Vulkan vs CPU drift
+                    if (!max_q && tile_sz == 200) {
+                        std::vector<uint8_t>* snap_dst = nullptr;
+                        if (bspec.use_vulkan && fp16_on) snap_dst = &vk_fp16_snap;
+                        else if (bspec.use_vulkan && !fp16_on) snap_dst = &vk_fp32_snap;
+                        else if (!bspec.use_vulkan && !fp16_on) snap_dst = &cpu_fp32_snap;
+
+                        if (snap_dst != nullptr) {
+                            snap_dst->resize(static_cast<size_t>(kSnapW * kSnapH * 3));
+                            for (int sy = 0; sy < kSnapH; ++sy) {
+                                for (int sx = 0; sx < kSnapW; ++sx) {
+                                    const size_t src_i = (static_cast<size_t>(sy * 10 + 5) * kOutW +
+                                        static_cast<size_t>(sx * 10 + 5)) * 3u;
+                                    const size_t dst_i = static_cast<size_t>(sy * kSnapW + sx) * 3u;
+                                    (*snap_dst)[dst_i + 0] = out_rgb[src_i + 0];
+                                    (*snap_dst)[dst_i + 1] = out_rgb[src_i + 1];
+                                    (*snap_dst)[dst_i + 2] = out_rgb[src_i + 2];
+                                }
+                            }
+                        }
+                    }
+
+                    // Compute seam metrics on `out_rgb` (2800x2000):
+                    //   1) Neighboring tile region mean brightness difference (`neighbor_mean_diff`)
+                    //   2) Smooth-area boundary jump vs neighboring non-boundary columns/rows
+                    const uint8_t* img = out_rgb.get();
+                    auto px_max_abs = [&](int x0, int y0, int x1, int y1) -> int {
+                        const uint8_t* p = img + (static_cast<size_t>(y0) * kOutW + static_cast<size_t>(x0)) * 3u;
+                        const uint8_t* q = img + (static_cast<size_t>(y1) * kOutW + static_cast<size_t>(x1)) * 3u;
+                        const int dr = std::abs(static_cast<int>(p[0]) - static_cast<int>(q[0]));
+                        const int dg = std::abs(static_cast<int>(p[1]) - static_cast<int>(q[1]));
+                        const int db = std::abs(static_cast<int>(p[2]) - static_cast<int>(q[2]));
+                        return std::max({dr, dg, db});
+                    };
+                    auto px_lum = [&](int x, int y) -> double {
+                        const uint8_t* p = img + (static_cast<size_t>(y) * kOutW + static_cast<size_t>(x)) * 3u;
+                        return (static_cast<double>(p[0]) + static_cast<double>(p[1]) + static_cast<double>(p[2])) / 3.0;
+                    };
+
+                    double bnd_sum = 0.0;
+                    size_t bnd_cnt = 0;
+                    double int_sum = 0.0;
+                    size_t int_cnt = 0;
+                    int smooth_bnd_max = 0;
+                    int smooth_int_max = 0;
+                    double max_nbr_diff = 0.0;
+
+                    const int nx = static_cast<int>(x_splits.size()) - 1;
+                    const int ny = static_cast<int>(y_splits.size()) - 1;
+
+                    // Vertical tile boundaries
+                    for (int ix = 1; ix < nx; ++ix) {
+                        const int bx = x_splits[static_cast<size_t>(ix)] * kScale;
+                        if (bx < 40 || bx + 40 >= kOutW) continue;
+
+                        for (int iy = 0; iy < ny; ++iy) {
+                            const int y0 = y_splits[static_cast<size_t>(iy)] * kScale;
+                            const int y1 = y_splits[static_cast<size_t>(iy + 1)] * kScale;
+                            double l_sum = 0.0;
+                            double r_sum = 0.0;
+                            size_t scnt = 0;
+                            for (int y = y0; y < y1; ++y) {
+                                for (int dx = 1; dx <= 20; ++dx) {
+                                    l_sum += px_lum(bx - dx, y);
+                                    r_sum += px_lum(bx + dx - 1, y);
+                                    ++scnt;
+                                }
+                            }
+                            if (scnt > 0) {
+                                max_nbr_diff = std::max(max_nbr_diff, std::abs(l_sum - r_sum) / static_cast<double>(scnt));
+                            }
+                        }
+
+                        for (int y = 0; y < kOutH; ++y) {
+                            const bool is_smooth = in_smooth_mask[static_cast<size_t>((y / kScale) * kInW + (bx / kScale))] != 0u;
+                            if (!is_smooth) continue;
+
+                            const int jb = px_max_abs(bx - 1, y, bx, y);
+                            const int j1 = px_max_abs(bx - 21, y, bx - 20, y);
+                            const int j2 = px_max_abs(bx + 19, y, bx + 20, y);
+                            bnd_sum += static_cast<double>(jb);
+                            ++bnd_cnt;
+                            int_sum += static_cast<double>(j1 + j2);
+                            int_cnt += 2u;
+                            smooth_bnd_max = std::max(smooth_bnd_max, jb);
+                            smooth_int_max = std::max(smooth_int_max, std::max(j1, j2));
+                        }
+                    }
+
+                    // Horizontal tile boundaries
+                    for (int iy = 1; iy < ny; ++iy) {
+                        const int by = y_splits[static_cast<size_t>(iy)] * kScale;
+                        if (by < 40 || by + 40 >= kOutH) continue;
+
+                        for (int ix = 0; ix < nx; ++ix) {
+                            const int x0 = x_splits[static_cast<size_t>(ix)] * kScale;
+                            const int x1 = x_splits[static_cast<size_t>(ix + 1)] * kScale;
+                            double t_sum = 0.0;
+                            double b_sum = 0.0;
+                            size_t scnt = 0;
+                            for (int dy = 1; dy <= 20; ++dy) {
+                                for (int x = x0; x < x1; ++x) {
+                                    t_sum += px_lum(x, by - dy);
+                                    b_sum += px_lum(x, by + dy - 1);
+                                    ++scnt;
+                                }
+                            }
+                            if (scnt > 0) {
+                                max_nbr_diff = std::max(max_nbr_diff, std::abs(t_sum - b_sum) / static_cast<double>(scnt));
+                            }
+                        }
+
+                        for (int x = 0; x < kOutW; ++x) {
+                            const bool is_smooth = in_smooth_mask[static_cast<size_t>((by / kScale) * kInW + (x / kScale))] != 0u;
+                            if (!is_smooth) continue;
+
+                            const int jb = px_max_abs(x, by - 1, x, by);
+                            const int j1 = px_max_abs(x, by - 21, x, by - 20);
+                            const int j2 = px_max_abs(x, by + 19, x, by + 20);
+                            bnd_sum += static_cast<double>(jb);
+                            ++bnd_cnt;
+                            int_sum += static_cast<double>(j1 + j2);
+                            int_cnt += 2u;
+                            smooth_bnd_max = std::max(smooth_bnd_max, jb);
+                            smooth_int_max = std::max(smooth_int_max, std::max(j1, j2));
+                        }
+                    }
+
+                    row.mean_boundary_jump = (bnd_cnt > 0) ? static_cast<float>(bnd_sum / static_cast<double>(bnd_cnt)) : 0.0f;
+                    row.mean_interior_jump = (int_cnt > 0) ? static_cast<float>(int_sum / static_cast<double>(int_cnt)) : 0.0f;
+                    row.max_boundary_jump = smooth_bnd_max;
+                    row.max_interior_jump = smooth_int_max;
+                    row.neighbor_mean_diff = static_cast<float>(max_nbr_diff);
+
+                    // FAIL if smooth-area boundary jump exceeds non-boundary baseline by > 2 gray levels
+                    // (or absolute smooth boundary jump > 2, or neighbor tile region drift > 1.0 gray level).
+                    const int excess_over_baseline = row.max_boundary_jump - row.max_interior_jump;
+                    row.passed = (excess_over_baseline <= 2) &&
+                                 (row.max_boundary_jump <= 2) &&
+                                 (row.neighbor_mean_diff <= 1.0f);
+                    row.note = std::to_string(nx) + "x" + std::to_string(ny) +
+                        " (" + std::to_string(fixed_tw) + "x" + std::to_string(fixed_th) + ")";
+
+                    report.rows.push_back(row);
+                    ++case_idx;
+                    (void)cur_case_num;
+                }
+            }
+            session.release();
+        }
+    }
+
+    if (progress_cb) {
+        progress_cb(kTotalCases, kTotalCases, "Complete");
+    }
+
+    // Compare Vulkan vs CPU subsampled snapshots if both ran
+    std::string cross_backend_line;
+    if (!cpu_fp32_snap.empty() && !vk_fp32_snap.empty() && !vk_fp16_snap.empty()) {
+        auto snap_diff = [&](const std::vector<uint8_t>& a, const std::vector<uint8_t>& b, double& mean_d, int& max_d) {
+            double s = 0.0;
+            int mx = 0;
+            for (size_t i = 0; i < a.size(); ++i) {
+                const int d = std::abs(static_cast<int>(a[i]) - static_cast<int>(b[i]));
+                s += static_cast<double>(d);
+                mx = std::max(mx, d);
+            }
+            mean_d = s / static_cast<double>(a.size());
+            max_d = mx;
+        };
+        double m16 = 0.0, m32 = 0.0;
+        int mx16 = 0, mx32 = 0;
+        snap_diff(vk_fp16_snap, cpu_fp32_snap, m16, mx16);
+        snap_diff(vk_fp32_snap, cpu_fp32_snap, m32, mx32);
+        cross_backend_line = "Vulkan vs CPU (tile=200, MaxQ=OFF): vk_fp16 diff mean=" +
+            format_fixed(m16, 2) + " max=" + std::to_string(mx16) +
+            " | vk_fp32 diff mean=" + format_fixed(m32, 2) + " max=" + std::to_string(mx32) + "\n";
+    }
+
+    int avail_count = 0;
+    int pass_count = 0;
+    bool active_default_pass = true;
+    const bool def_disable_fp16 = report.fp16_calibration.recommend_disable_fp16;
+
+    for (const SeamTestCaseRow& r : report.rows) {
+        if (!r.backend_available) continue;
+        ++avail_count;
+        if (r.passed) {
+            ++pass_count;
+        }
+        const bool is_default_precision =
+            (r.backend == "CPU" && !r.fp16_enabled) ||
+            (r.backend == "Vulkan" && (r.fp16_enabled == !def_disable_fp16));
+        if (is_default_precision && !r.passed) {
+            active_default_pass = false;
+        }
+    }
+
+    report.overall_pass = (avail_count > 0) && active_default_pass && (pass_count == avail_count);
+    report.summary = std::string(active_default_pass ? "Default Policy: PASS" : "Default Policy: FAIL") +
+        " | Matrix: " + std::to_string(pass_count) + "/" + std::to_string(avail_count) + " available configs PASS";
+
+    std::string table =
+        "=== Enhancer Seam Test (700x500 -> 2800x2000, realesrgan-x4plus) ===\n" +
+        query_vulkan_diagnostics_summary() + "\n" +
+        cross_backend_line +
+        report.summary + "\n\n" +
+        "Backend | fp16 | MaxQ | Tile | Status | BndMean/IntMean | BndMax/IntMax | NbrShift | Time   | Grid(Padded)\n" +
+        "--------+------+------+------+--------+-----------------+---------------+----------+--------+-----------------\n";
+
+    for (const SeamTestCaseRow& r : report.rows) {
+        char line[256];
+        if (!r.backend_available) {
+            std::snprintf(
+                line, sizeof(line),
+                "%-7s | %-4s | %-4s | %4d | %-6s | %15s | %13s | %8s | %6s | %s\n",
+                r.backend.c_str(),
+                r.fp16_enabled ? "ON" : "OFF",
+                r.max_quality ? "ON" : "OFF",
+                r.tile_size,
+                "N/A",
+                "-",
+                "-",
+                "-",
+                "-",
+                r.note.c_str()
+            );
+        } else {
+            const std::string bm_im = format_fixed(r.mean_boundary_jump, 2) + "/" + format_fixed(r.mean_interior_jump, 2);
+            const std::string bx_ix = std::to_string(r.max_boundary_jump) + "/" + std::to_string(r.max_interior_jump);
+            const std::string nbr = format_fixed(r.neighbor_mean_diff, 2);
+            const std::string tms = std::to_string(r.elapsed_ms) + "ms";
+            std::snprintf(
+                line, sizeof(line),
+                "%-7s | %-4s | %-4s | %4d | %-6s | %15s | %13s | %8s | %6s | %s\n",
+                r.backend.c_str(),
+                r.fp16_enabled ? "ON" : "OFF",
+                r.max_quality ? "ON" : "OFF",
+                r.tile_size,
+                r.passed ? "PASS" : "FAIL",
+                bm_im.c_str(),
+                bx_ix.c_str(),
+                nbr.c_str(),
+                tms.c_str(),
+                r.note.c_str()
+            );
+        }
+        table += line;
+    }
+
+    report.formatted_table = table;
+    LOGI("%s", report.formatted_table.c_str());
     return report;
 }
 

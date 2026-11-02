@@ -17,9 +17,11 @@ Enhancer declares **no internet permission at all** (`android.permission.INTERNE
 - **True Full-Resolution Tiled Deep-Zoom Viewer**:
   - Streams visible tiles directly from the real saved 4K/8K output file via `BitmapRegionDecoder` (never scaling a downsampled preview and never decoding a full 8K `Bitmap` into Java heap).
   - Backed by a 64 MB LRU tile cache with frame-safe recycling, `OutOfMemoryError` protection, smooth tile crossfading, focal pinch-zoom, double-tap zoom (`Fit` → `1:1` → `400%`), inertial pan fling, selectable **Nearest / Bilinear** pixel filtering, live zoom `%` + **`1:1`** HUD badge, and synced **Original** (Catmull-Rom bicubic) vs **Enhanced** split comparison.
-- **Max Quality Mode** *(toggle, off by default)*:
-  - Always runs Real-ESRGAN on the **full-resolution source** (never pre-downscales before inference), then downscales oversized model outputs to the exact target via anti-aliased **streaming row-band Lanczos3** supersampling.
-  - Uses **32 px reflection tile prepadding** and a **32 px 2D linear feathered overlap blend** (exact partition of unity) instead of hard border cropping.
+- **Max Quality Mode** *(toggle, off by default)* & **Seamless Float Feathered Tiling**:
+  - **Standard Mode** uses balanced grid splits (zero narrow runt edge tiles), uniform aligned tile tensor dimensions, **16 px reflection prepadding**, and **24 px (at 4×) 2D per-tile `float` feathered overlap blending** (`w_prev + w_curr == 1.0f`) streamed directly into the single `final_rgb` buffer.
+  - **Max Quality Mode** always runs Real-ESRGAN on the **full-resolution source** (never pre-downscales before inference), uses **32 px reflection tile prepadding** and **32 px (at 4×) 2D `float` feathered overlap blending**, and downscales oversized model outputs to the exact target via anti-aliased **streaming row-band Lanczos3** supersampling.
+- **Adreno / Mobile Vulkan Precision Calibration**:
+  - Disables Vulkan `Winograd F(4,3)` (`64×` 2D Vandermonde amplification across 69 RRDB blocks) while keeping `Winograd F(2,3)` + SGEMM compute, automatically calibrates Vulkan `fp16` vs CPU `fp32` at startup (defaulting `fp16` OFF on Qualcomm Adreno GPUs such as Adreno 660 while preserving manual override in Advanced settings), and uses fine perceptual `YQT` chroma quantization (`q_scale = 1` at `Q = 98`) for smooth `4:4:4` JPEG gradients without `8×8` micro-blocking.
 - **Optional TTA (`x8 Mode`)**:
   - Runs inference on all 8 dihedral flip/rotate variants per tile, inverts each transform in float, and averages all 8 passes (~8× slower warning shown, cancelable anytime with accurate sub-pass progress).
 - **Optional Adaptive Sharpness Control (`0..100`)**:
@@ -28,8 +30,8 @@ Enhancer declares **no internet permission at all** (`android.permission.INTERNE
   - Configurable JPEG quality slider (`90..100`, default `98`) encoding true **`4:4:4` full chroma** (`SOF0` `1×1` sampling on Y, Cb, Cr — zero `4:2:0` chroma subsampling across the entire `90..100` range), while keeping lossless **PNG**.
 - **Per-Image Re-Run ("Re-process with different settings")**:
   - Re-run any finished result directly from the comparison screen with different model, target, Max Quality, TTA, sharpness, or format settings while keeping both the original image and your already-saved result.
-- **Version 2.0, Diagnostics & Self-Test**:
-  - Displays `Version 2.0` (`BuildConfig.VERSION_NAME`) in the header and includes a **Diagnostics** panel on the **About** screen with Vulkan heap-budget inspection, structured native diagnostic logs, and a one-tap **"Run self-test"** button (`256×256` synthetic image through `realesrgan-x4plus` on both Vulkan and CPU at `tile = 64`).
+- **Version 2.0, Diagnostics, Self-Test & Seam Test**:
+  - Displays `Version 2.0` (`BuildConfig.VERSION_NAME`) in the header and includes a **Diagnostics** panel on the **About** screen with Vulkan heap-budget & FP16 policy inspection, structured native diagnostic logs, a one-tap **"Run self-test"** button (`256×256` synthetic image on Vulkan and CPU), and a **"Seam test"** button (`700×500` smooth studio wall + gradient + glossy floor matrix across Vulkan/CPU × `fp16` ON/OFF × Max Quality ON/OFF × tiles `128/200/256`, with **Copy results**).
 - **Ordered Automatic Fallback Chain & Safe Mode**:
   - Single full-size output buffer (`final_rgb`) with streaming row-by-row `4:4:4` JPEG and zlib PNG encoders (zero duplicate full-size copies), GPU `get_heap_budget()` tile capping, per-tile Vulkan allocator clearing, and automatic step-by-step recovery (`halve tile down to 48 px` → `disable TTA` → `disable Max Quality` → `switch to CPU`), plus an explicit **Safe Mode** toggle (`CPU + tile 64 + no Max Quality + no TTA`).
 

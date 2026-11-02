@@ -75,6 +75,35 @@ data class NativeSelfTestResult(
     val fullLog: String
 )
 
+data class Fp16PolicyCalibration(
+    val recommendDisableFp16: Boolean,
+    val vulkanAvailable: Boolean,
+    val isAdreno: Boolean,
+    val reason: String
+)
+
+data class SeamTestRowItem(
+    val backend: String,
+    val fp16Label: String,
+    val maxQualityLabel: String,
+    val tileSize: Int,
+    val statusLabel: String,
+    val meanBndVsInt: String,
+    val maxBndVsInt: String,
+    val neighborMeanDiff: String,
+    val elapsedMs: Long,
+    val gridNote: String
+)
+
+data class NativeSeamTestResult(
+    val statusCode: Int,
+    val overallPass: Boolean,
+    val summary: String,
+    val fp16PolicyReason: String,
+    val formattedTable: String,
+    val rows: List<SeamTestRowItem>
+)
+
 object NativeEnhancer {
     init {
         System.loadLibrary("enhancer")
@@ -84,11 +113,22 @@ object NativeEnhancer {
 
     external fun nativeCancel()
 
+    external fun nativeCancelSeamTest()
+
+    external fun nativeShouldDefaultDisableFp16(): Boolean
+
+    external fun nativeCalibrateFp16Policy(assetManager: AssetManager): Array<String>?
+
     external fun nativeQueryGpuInfo(): String
 
     external fun nativeQueryGpuDiagnostics(): String
 
     external fun nativeRunSelfTest(assetManager: AssetManager): Array<String>?
+
+    external fun nativeRunSeamTest(
+        assetManager: AssetManager,
+        progressListener: NativeProgressListener?
+    ): Array<String>?
 
     external fun nativeComputeDimensions(
         srcW: Int,
@@ -170,6 +210,87 @@ object NativeEnhancer {
 
     fun requestCancel() {
         runCatching { nativeCancel() }
+    }
+
+    fun cancelSeamTest() {
+        runCatching { nativeCancelSeamTest() }
+    }
+
+    fun shouldDefaultDisableFp16(): Boolean {
+        return runCatching { nativeShouldDefaultDisableFp16() }.getOrDefault(false)
+    }
+
+    fun calibrateFp16Policy(assetManager: AssetManager): Fp16PolicyCalibration {
+        val arr = runCatching { nativeCalibrateFp16Policy(assetManager) }.getOrNull()
+        if (arr == null || arr.size < 4) {
+            val defOff = shouldDefaultDisableFp16()
+            return Fp16PolicyCalibration(
+                recommendDisableFp16 = defOff,
+                vulkanAvailable = false,
+                isAdreno = defOff,
+                reason = if (defOff) "FP16 default: OFF (Qualcomm Adreno hardware policy)" else "FP16 default: ON"
+            )
+        }
+        return Fp16PolicyCalibration(
+            recommendDisableFp16 = arr[0] == "1",
+            vulkanAvailable = arr[1] == "1",
+            isAdreno = arr[2] == "1",
+            reason = arr[3]
+        )
+    }
+
+    fun runSeamTest(
+        assetManager: AssetManager,
+        onProgressUpdate: (doneCases: Int, totalCases: Int, label: String) -> Unit
+    ): NativeSeamTestResult {
+        val listener = object : NativeProgressListener {
+            override fun onProgress(progress: Int, backend: String, tileSize: Int) {
+                onProgressUpdate(progress, tileSize, backend)
+            }
+        }
+        val arr = runCatching { nativeRunSeamTest(assetManager, listener) }.getOrNull()
+        if (arr == null || arr.size < 5) {
+            val msg = "JNI nativeRunSeamTest returned null or incomplete result"
+            return NativeSeamTestResult(
+                statusCode = NativeStatusCode.ERR_EXCEPTION.code,
+                overallPass = false,
+                summary = msg,
+                fp16PolicyReason = "",
+                formattedTable = msg,
+                rows = emptyList()
+            )
+        }
+
+        val parsedRows = buildList {
+            for (i in 5 until arr.size) {
+                val parts = arr[i].split('\t')
+                if (parts.size >= 10) {
+                    add(
+                        SeamTestRowItem(
+                            backend = parts[0],
+                            fp16Label = parts[1],
+                            maxQualityLabel = parts[2],
+                            tileSize = parts[3].toIntOrNull() ?: 200,
+                            statusLabel = parts[4],
+                            meanBndVsInt = parts[5],
+                            maxBndVsInt = parts[6],
+                            neighborMeanDiff = parts[7],
+                            elapsedMs = parts[8].toLongOrNull() ?: 0L,
+                            gridNote = parts[9]
+                        )
+                    )
+                }
+            }
+        }
+
+        return NativeSeamTestResult(
+            statusCode = arr[0].toIntOrNull() ?: 0,
+            overallPass = arr[1] == "PASS",
+            summary = arr[2],
+            fp16PolicyReason = arr[3],
+            formattedTable = arr[4],
+            rows = parsedRows
+        )
     }
 
     fun resizeBitmapBicubic(

@@ -15,15 +15,19 @@ import com.enhancer.app.model.TargetPreset
 import com.enhancer.app.model.TileSizeOption
 import com.enhancer.app.model.UpscaleModel
 import com.enhancer.app.nativebridge.NativeEnhancer
+import com.enhancer.app.nativebridge.NativeSeamTestResult
 import com.enhancer.app.nativebridge.NativeSelfTestResult
 import com.enhancer.app.util.DeviceMemorySnapshot
 import com.enhancer.app.util.ImageHelper
 import com.enhancer.app.util.MemoryEstimator
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
@@ -35,26 +39,60 @@ data class QueueUiState(
     @StringRes val thermalStatusRes: Int = R.string.thermal_status_severe,
     val vulkanDeviceName: String = "",
     val gpuDiagnosticsSummary: String = "",
+    val fp16PolicyReason: String = "",
+    val isFp16UserOverridden: Boolean = false,
     val lastNativeDiagnostic: String = "",
     val isSelfTestRunning: Boolean = false,
     val selfTestResult: NativeSelfTestResult? = null,
+    val isSeamTestRunning: Boolean = false,
+    val seamTestProgressDone: Int = 0,
+    val seamTestProgressTotal: Int = 24,
+    val seamTestProgressLabel: String = "",
+    val seamTestResult: NativeSeamTestResult? = null,
     val deviceMemory: DeviceMemorySnapshot = DeviceMemorySnapshot(2048, 4096, 256, false)
 )
 
 class EnhancerQueueRepository(private val appContext: Context) {
 
     private val prefs = appContext.getSharedPreferences("enhancer_prefs", Context.MODE_PRIVATE)
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val _state = MutableStateFlow(
         QueueUiState(
             settings = loadSettings(),
             vulkanDeviceName = NativeEnhancer.getVulkanDeviceName(),
             gpuDiagnosticsSummary = NativeEnhancer.getGpuDiagnosticsSummary(),
+            isFp16UserOverridden = prefs.getBoolean("disable_fp16_user_set", false),
             lastNativeDiagnostic = prefs.getString("last_native_diag", "") ?: "",
             deviceMemory = MemoryEstimator.readDeviceMemory(appContext)
         )
     )
     val state: StateFlow<QueueUiState> = _state.asStateFlow()
+
+    init {
+        backgroundScope.launch {
+            if (!_state.value.isServiceRunning) {
+                val calib = NativeEnhancer.calibrateFp16Policy(appContext.assets)
+                val latestGpuSummary = NativeEnhancer.getGpuDiagnosticsSummary()
+                _state.update { cur ->
+                    val userOverrode = prefs.getBoolean("disable_fp16_user_set", false)
+                    val nextSettings = if (!userOverrode && cur.settings.disableFp16 != calib.recommendDisableFp16) {
+                        val s = cur.settings.copy(disableFp16 = calib.recommendDisableFp16)
+                        saveSettings(s)
+                        s
+                    } else {
+                        cur.settings
+                    }
+                    cur.copy(
+                        settings = nextSettings,
+                        gpuDiagnosticsSummary = latestGpuSummary,
+                        fp16PolicyReason = calib.reason,
+                        isFp16UserOverridden = userOverrode
+                    )
+                }
+            }
+        }
+    }
 
     @Volatile
     private var currentlyRunningId: String? = null
@@ -74,11 +112,75 @@ class EnhancerQueueRepository(private val appContext: Context) {
     fun updateSettings(transform: (EnhancerSettings) -> EnhancerSettings) {
         _state.update { cur ->
             val updated = transform(cur.settings)
+            val fp16ChangedByUser = updated.disableFp16 != cur.settings.disableFp16
+            if (fp16ChangedByUser) {
+                prefs.edit().putBoolean("disable_fp16_user_set", true).apply()
+            }
             saveSettings(updated)
             cur.copy(
                 settings = updated,
+                isFp16UserOverridden = cur.isFp16UserOverridden || fp16ChangedByUser,
                 deviceMemory = MemoryEstimator.readDeviceMemory(appContext)
             )
+        }
+    }
+
+    fun cancelDiagnosticsSeamTest() {
+        NativeEnhancer.cancelSeamTest()
+    }
+
+    suspend fun runDiagnosticsSeamTest(): NativeSeamTestResult = withContext(Dispatchers.Default) {
+        _state.update {
+            it.copy(
+                isSeamTestRunning = true,
+                seamTestProgressDone = 0,
+                seamTestProgressTotal = 24,
+                seamTestProgressLabel = ""
+            )
+        }
+        try {
+            val res = NativeEnhancer.runSeamTest(appContext.assets) { done, total, label ->
+                _state.update { cur ->
+                    cur.copy(
+                        seamTestProgressDone = done,
+                        seamTestProgressTotal = if (total > 0) total else 24,
+                        seamTestProgressLabel = label
+                    )
+                }
+            }
+            saveLastDiagnostic(res.formattedTable)
+            val latestGpuSummary = NativeEnhancer.getGpuDiagnosticsSummary()
+            val latestMem = MemoryEstimator.readDeviceMemory(appContext)
+            _state.update {
+                it.copy(
+                    isSeamTestRunning = false,
+                    seamTestResult = res,
+                    fp16PolicyReason = res.fp16PolicyReason.ifBlank { it.fp16PolicyReason },
+                    lastNativeDiagnostic = res.formattedTable,
+                    gpuDiagnosticsSummary = latestGpuSummary,
+                    deviceMemory = latestMem
+                )
+            }
+            res
+        } catch (t: Throwable) {
+            val errMsg = "Seam test exception: ${t.message ?: t::class.java.simpleName}"
+            val failRes = NativeSeamTestResult(
+                statusCode = -7,
+                overallPass = false,
+                summary = errMsg,
+                fp16PolicyReason = "",
+                formattedTable = errMsg,
+                rows = emptyList()
+            )
+            saveLastDiagnostic(errMsg)
+            _state.update {
+                it.copy(
+                    isSeamTestRunning = false,
+                    seamTestResult = failRes,
+                    lastNativeDiagnostic = errMsg
+                )
+            }
+            failRes
         }
     }
 
@@ -516,7 +618,12 @@ class EnhancerQueueRepository(private val appContext: Context) {
             TileSizeOption.valueOf(prefs.getString("tile_size", TileSizeOption.AUTO.name)!!)
         }.getOrDefault(TileSizeOption.AUTO)
 
-        val disableFp16 = prefs.getBoolean("disable_fp16", false)
+        val fp16UserSet = prefs.getBoolean("disable_fp16_user_set", false)
+        val disableFp16 = if (fp16UserSet) {
+            prefs.getBoolean("disable_fp16", false)
+        } else {
+            NativeEnhancer.shouldDefaultDisableFp16()
+        }
 
         val lang = runCatching {
             AppLanguageMode.valueOf(prefs.getString("lang_mode", AppLanguageMode.SYSTEM.name)!!)
