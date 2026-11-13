@@ -18,9 +18,13 @@ if(_ncnn_opts)
     set_target_properties(ncnn PROPERTIES INTERFACE_COMPILE_OPTIONS "${_ncnn_opts}")
 endif()
 
-# 2. Locate system ZLIB or automatically build madler/zlib v1.3.1 (needed on Windows MSVC)
-find_package(ZLIB QUIET)
-if(ZLIB_FOUND)
+# 2. Always statically link madler/zlib v1.3.1 on Windows so enhancer_engine.dll never
+#    depends on any external zlib1.dll on end-user PCs; use system ZLIB on Linux if present.
+if(NOT WIN32)
+    find_package(ZLIB QUIET)
+endif()
+
+if(ZLIB_FOUND AND NOT WIN32)
     set(ENHANCER_ZLIB_TARGET ZLIB::ZLIB)
 else()
     include(FetchContent)
