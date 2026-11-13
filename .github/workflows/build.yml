@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build Enhancer v3.0 Universal Debug APK (arm64-v8a / armeabi-v7a / x86_64)
@@ -111,3 +114,18 @@ jobs:
           name: Enhancer-v3.0-debug
           path: app/build/outputs/apk/debug/Enhancer-v3.0-debug.apk
           if-no-files-found: error
+
+      - name: Attach Universal Android APK to GitHub Release v3.0.0 (on main)
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v3.0.0"
+          APK="app/build/outputs/apk/debug/Enhancer-v3.0-debug.apk"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            gh release create "$TAG" "$APK" \
+              --title "Enhancer v3.0 Studio (Windows x64 & Android)" \
+              --notes "Enhancer v3.0 Studio — Built by Mohammad Irani (100% Offline AI Super-Resolution, Face Restoration & Smart HDR for Windows x64 & Android)."
+          fi

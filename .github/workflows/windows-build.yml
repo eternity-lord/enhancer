@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-windows:
     name: Build Enhancer v3.0 Windows x64 (Vulkan GPU + Multi-Core CPU + Setup.exe)
@@ -175,3 +178,34 @@ jobs:
           name: Enhancer-v3.0-Windows-x64-Portable
           path: windows/dist/Enhancer-v3.0-Windows-x64-Portable.zip
           if-no-files-found: error
+
+      - name: Publish Installer & Portable Zip to GitHub Release v3.0.0 (on main)
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          $Tag = "v3.0.0"
+          $SetupExe = "windows\dist\Enhancer-v3.0-Windows-x64-Setup.exe"
+          $PortableZip = "windows\dist\Enhancer-v3.0-Windows-x64-Portable.zip"
+
+          $Notes = @(
+            '## Enhancer v3.0 Studio — Windows x64 & Android',
+            '**Built by Mohammad Irani | ساخته شده توسط محمد ایرانی**',
+            '',
+            '### Direct Downloads (100% Offline — All 20 AI Models Bundled)',
+            '- **Windows Installer (`Enhancer-v3.0-Windows-x64-Setup.exe`)**: One-click installer for Windows 10/11 (x64). No admin rights or external runtimes required (`.NET 8`, `VC++/OpenMP`, and all neural models included).',
+            '- **Windows Portable (`Enhancer-v3.0-Windows-x64-Portable.zip`)**: Extract anywhere and run `Enhancer.exe` or `enhancer-cli.exe`.',
+            '- **Android Universal APK (`Enhancer-v3.0-debug.apk`)**: Offline Android 8.0+ universal package (`arm64-v8a`, `armeabi-v7a`, `x86_64`).',
+            '- **Works With OR Without a Graphics Card**: Hardware-accelerated **Vulkan GPU** (NVIDIA, AMD, Intel, discrete GPU priority) + automatic **Multi-Core CPU** (`OpenMP` + `AVX2/AVX-512`) on GPU-less PCs.'
+          ) -join "`n"
+
+          & gh release view $Tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            & gh release create $Tag $SetupExe $PortableZip --title "Enhancer v3.0 Studio (Windows x64 & Android)" --notes $Notes
+          } else {
+            & gh release upload $Tag $SetupExe $PortableZip --clobber
+            & gh release edit $Tag --title "Enhancer v3.0 Studio (Windows x64 & Android)" --notes $Notes
+          }
+          if ($LASTEXITCODE -ne 0) { exit 1 }

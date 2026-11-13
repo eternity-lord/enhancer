@@ -87,7 +87,15 @@ inline std::FILE* open_utf8_file(const std::string& utf8_path, const char* mode)
     if (wpath.empty() || wmode.empty()) {
         return nullptr;
     }
+#ifdef _MSC_VER
+    std::FILE* fp = nullptr;
+    if (::_wfopen_s(&fp, wpath.c_str(), wmode.c_str()) != 0) {
+        return nullptr;
+    }
+    return fp;
+#else
     return ::_wfopen(wpath.c_str(), wmode.c_str());
+#endif
 #else
     return std::fopen(utf8_path.c_str(), mode);
 #endif
