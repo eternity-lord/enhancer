@@ -31,5 +31,11 @@ Thumbs.db
 *.ap_
 *.dex
 
-# Ensure Gradle wrapper JAR is tracked
+# Windows Native / .NET / Installer build outputs & cached deps
+windows/build/
+windows/deps/
+windows/dist/
+windows/**/bin/
+windows/**/obj/
+*.exe
 !gradle/wrapper/gradle-wrapper.jar

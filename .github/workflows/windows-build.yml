@@ -1,0 +1,211 @@
+name: Windows CI Build & Installer
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Enhancer v3.0 Windows x64 (Vulkan GPU + Multi-Core CPU + Setup.exe)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Cache Windows ncnn SDK & CodeFormer neural weights
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/enhancer-windows-deps
+          key: enhancer-win-deps-v3-ncnn20261020-cf-cfe0fe2d
+
+      - name: Prepare Windows ncnn VS2022 SDK & all 20 neural model files
+        shell: pwsh
+        run: ./scripts/prepare_windows_deps.ps1
+
+      - name: Set up .NET 8.0 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build Native C++17 Engine (enhancer_engine.dll & enhancer-cli.exe)
+        shell: pwsh
+        run: |
+          $NcnnCmakeDir = (Resolve-Path "windows\deps\ncnn-win-x64\x64\lib\cmake\ncnn").Path
+          cmake -S windows -B windows/build/native -A x64 "-Dncnn_DIR=$NcnnCmakeDir" 2>&1 | Tee-Object -FilePath cmake_cfg.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content cmake_cfg.log | Select-Object -Last 30 | ForEach-Object { Write-Output "::error::$_" }
+            exit 1
+          }
+          cmake --build windows/build/native --config Release --parallel 2>&1 | Tee-Object -FilePath cmake_bld.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content cmake_bld.log | Select-String -Pattern "error |LNK|FAILED" | Select-Object -Last 30 | ForEach-Object { Write-Output "::error::$($_.Line)" }
+            exit 1
+          }
+
+      - name: Publish .NET 8.0 WPF Desktop Studio (Self-Contained win-x64)
+        shell: pwsh
+        run: |
+          dotnet publish windows/Enhancer.Desktop/Enhancer.Desktop.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=false `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -o windows/dist/Enhancer-v3.0-Windows-x64 2>&1 | Tee-Object -FilePath dotnet_pub.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content dotnet_pub.log | Select-String -Pattern "error " | Select-Object -Last 30 | ForEach-Object { Write-Output "::error::$($_.Line)" }
+            exit 1
+          }
+
+      - name: Stage Native Engine, MSVC/OpenMP Runtimes & Offline AI Models
+        shell: pwsh
+        run: |
+          $StageDir = "windows\dist\Enhancer-v3.0-Windows-x64"
+          Copy-Item -Force "windows\build\native\Release\enhancer_engine.dll" $StageDir
+          Copy-Item -Force "windows\build\native\Release\enhancer-cli.exe" $StageDir
+
+          # Bundle all MSVC C++ CRT & OpenMP runtime DLLs (x64) so fresh Windows PCs need zero prerequisites
+          $VsInstall = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $RedistRoot = Join-Path $VsInstall "VC\Redist\MSVC"
+          if (Test-Path $RedistRoot) {
+            Get-ChildItem -Path $RedistRoot -Filter "*.dll" -Recurse -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.FullName -match "\\x64\\Microsoft\.VC\d+\.(CRT|OpenMP)\\" -and
+                $_.FullName -notmatch "onecore"
+              } |
+              ForEach-Object {
+                Copy-Item -Force $_.FullName (Join-Path $StageDir $_.Name)
+                Write-Host "Bundled redistributable: $($_.FullName)"
+              }
+          }
+
+          # Verify PE DLL imports (ensure zero hard dependency on vulkan-1.dll or external zlib1.dll)
+          $Dumpbin = Get-ChildItem -Path (Join-Path $VsInstall "VC\Tools\MSVC") -Filter "dumpbin.exe" -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match "Hostx64\\x64" } |
+            Select-Object -First 1
+          if ($Dumpbin) {
+            $Imports = (& $Dumpbin.FullName /dependents "$StageDir\enhancer_engine.dll") | Out-String
+            Write-Host $Imports
+            if ($Imports -match "vulkan-1\.dll") {
+              Write-Output "::error::enhancer_engine.dll has hard import on vulkan-1.dll (breaks no-GPU PCs)!"
+              exit 1
+            }
+            if ($Imports -match "zlib.*\.dll") {
+              Write-Output "::error::enhancer_engine.dll has external zlib DLL dependency!"
+              exit 1
+            }
+          }
+
+          $StageModels = Join-Path $StageDir "models"
+          New-Item -ItemType Directory -Force -Path $StageModels | Out-Null
+          Copy-Item -Force "windows\deps\models\*" $StageModels
+
+          Copy-Item -Force "README.md" (Join-Path $StageDir "README.md")
+          Write-Host "Staged files count in models: $((Get-ChildItem $StageModels).Count)"
+
+      - name: Verify No-GPU Windows Compatibility (CLI Diagnostics, Native Self-Test & WPF Smoke-Test)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $StageDir = (Resolve-Path "windows\dist\Enhancer-v3.0-Windows-x64").Path
+
+          Write-Host "=== 1. Testing enhancer-cli.exe --diag ==="
+          $DiagOut = & "$StageDir\enhancer-cli.exe" --diag 2>&1
+          $DiagRc = $LASTEXITCODE
+          $DiagOut | ForEach-Object { Write-Host $_ }
+          if ($DiagRc -ne 0) {
+            Write-Output "::error::enhancer-cli.exe --diag exited with code $DiagRc ($($DiagOut -join ' | '))"
+            exit 1
+          }
+
+          Write-Host "=== 2. Testing enhancer-cli.exe --self-test (256x256 -> 1024x1024 Real-ESRGAN) ==="
+          $SelfOut = & "$StageDir\enhancer-cli.exe" --self-test 2>&1
+          $SelfRc = $LASTEXITCODE
+          $SelfOut | ForEach-Object { Write-Host $_ }
+          if ($SelfRc -ne 0) {
+            Write-Output "::error::enhancer-cli.exe --self-test exited with code $SelfRc ($($SelfOut -join ' | '))"
+            exit 1
+          }
+
+          Write-Host "=== 3. Testing Enhancer.exe --smoke-test (.NET 8 WPF + P/Invoke + Ultra + Faces + Light AI + 300 DPI) ==="
+          $WpfOut = & "$StageDir\Enhancer.exe" --smoke-test 2>&1
+          $WpfRc = $LASTEXITCODE
+          $WpfOut | ForEach-Object { Write-Host $_ }
+          if ($WpfRc -ne 0) {
+            Write-Output "::error::Enhancer.exe --smoke-test exited with code $WpfRc ($($WpfOut -join ' | '))"
+            exit 1
+          }
+
+      - name: Package Windows Installer (Setup.exe) & Portable Archive (.zip)
+        shell: pwsh
+        run: |
+          $IsccPaths = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"
+          )
+          $Iscc = $IsccPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $Iscc) {
+            choco install innosetup --no-progress -y
+            $Iscc = $IsccPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $Iscc) { throw "Inno Setup ISCC.exe not found" }
+
+          & $Iscc "windows\installer\EnhancerSetup.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+
+          $PortableZip = "windows\dist\Enhancer-v3.0-Windows-x64-Portable.zip"
+          Compress-Archive -Path "windows\dist\Enhancer-v3.0-Windows-x64\*" -DestinationPath $PortableZip -CompressionLevel Optimal -Force
+
+          Get-ChildItem "windows\dist" -File | Select-Object Name, Length | Format-Table -AutoSize
+          Get-FileHash "windows\dist\Enhancer-v3.0-Windows-x64-Setup.exe" -Algorithm SHA256 | Format-List
+          Get-FileHash $PortableZip -Algorithm SHA256 | Format-List
+
+      - name: Upload Enhancer v3.0 Windows Installer (Setup.exe)
+        uses: actions/upload-artifact@v7
+        with:
+          name: Enhancer-v3.0-Windows-x64-Setup
+          path: windows/dist/Enhancer-v3.0-Windows-x64-Setup.exe
+          if-no-files-found: error
+
+      - name: Upload Enhancer v3.0 Windows Portable (.zip)
+        uses: actions/upload-artifact@v7
+        with:
+          name: Enhancer-v3.0-Windows-x64-Portable
+          path: windows/dist/Enhancer-v3.0-Windows-x64-Portable.zip
+          if-no-files-found: error
+
+      - name: Publish Installer & Portable Zip to GitHub Release v3.0.0 (on main)
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = "Continue"
+          $Tag = "v3.0.0"
+          $SetupExe = "windows\dist\Enhancer-v3.0-Windows-x64-Setup.exe"
+          $PortableZip = "windows\dist\Enhancer-v3.0-Windows-x64-Portable.zip"
+
+          $Notes = @(
+            '## Enhancer v3.0 Studio — Windows x64 & Android',
+            '**Built by Mohammad Irani | ساخته شده توسط محمد ایرانی**',
+            '',
+            '### Direct Downloads (100% Offline — All 20 AI Models Bundled)',
+            '- **Windows Installer (`Enhancer-v3.0-Windows-x64-Setup.exe`)**: One-click installer for Windows 10/11 (x64). No admin rights or external runtimes required (`.NET 8`, `VC++/OpenMP`, and all neural models included).',
+            '- **Windows Portable (`Enhancer-v3.0-Windows-x64-Portable.zip`)**: Extract anywhere and run `Enhancer.exe` or `enhancer-cli.exe`.',
+            '- **Android Universal APK (`Enhancer-v3.0-debug.apk`)**: Offline Android 8.0+ universal package (`arm64-v8a`, `armeabi-v7a`, `x86_64`).',
+            '- **Works With OR Without a Graphics Card**: Hardware-accelerated **Vulkan GPU** (NVIDIA, AMD, Intel, discrete GPU priority) + automatic **Multi-Core CPU** (`OpenMP` + `AVX2/AVX-512`) on GPU-less PCs.'
+          ) -join "`n"
+
+          & gh release view $Tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            & gh release create $Tag $SetupExe $PortableZip --title "Enhancer v3.0 Studio (Windows x64 & Android)" --notes $Notes
+          } else {
+            & gh release upload $Tag $SetupExe $PortableZip --clobber
+            & gh release edit $Tag --title "Enhancer v3.0 Studio (Windows x64 & Android)" --notes $Notes
+          }
+          if ($LASTEXITCODE -ne 0) { exit 1 }

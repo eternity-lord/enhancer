@@ -81,16 +81,25 @@ inline std::string format_step_diagnostic(
 
 // Overflow-safe 64-bit / size_t multiplication for `w * h * channels` and buffer byte counts.
 inline bool checked_mul_size(size_t a, size_t b, size_t& out) noexcept {
+#if defined(_MSC_VER) && !defined(__clang__)
+    if (a != 0 && b > (std::numeric_limits<size_t>::max)() / a) {
+        out = 0;
+        return false;
+    }
+    out = a * b;
+    return true;
+#else
     return !__builtin_mul_overflow(a, b, &out);
+#endif
 }
 
 inline bool checked_mul3_size(size_t a, size_t b, size_t c, size_t& out) noexcept {
     size_t ab = 0;
-    if (__builtin_mul_overflow(a, b, &ab)) {
+    if (!checked_mul_size(a, b, ab)) {
         out = 0;
         return false;
     }
-    if (__builtin_mul_overflow(ab, c, &out)) {
+    if (!checked_mul_size(ab, c, out)) {
         out = 0;
         return false;
     }
@@ -176,14 +185,17 @@ struct DimensionPlan {
 struct UpscaleConfig {
     std::string param_asset_path;
     std::string bin_asset_path;
+    std::string models_base_dir;   // Desktop/CLI models root when AAssetManager* is null (UTF-8)
     int model_scale = 4;
-    int target_long_side = 0;      // 0 = Native xN, 3840 = 4K, 7680 = 8K
+    int target_long_side = 0;      // 0 = Native xN, 2560 = 2K, 3840 = 4K, 7680 = 8K, 15360 = 16K
     int requested_tile_size = 200; // <= 0 means default 200; minimum 48
     bool disable_fp16 = false;
     bool max_quality = false;      // Default OFF: full-res inference + 32px feathered tiles + Lanczos3
     bool tta_x8 = false;           // Default OFF: 8x flip/rotate Test-Time Augmentation
     bool safe_mode = false;        // Default OFF: forces CPU + tile 64 + no Max quality + no TTA
     bool force_cpu = false;        // Forces CPU backend without overriding tile size unless safe_mode
+    int gpu_index = -1;            // -1 = Auto Best GPU (prefers Discrete GPU), 0..N-1 = explicit GPU
+    int num_threads = 0;           // 0 = Auto optimal CPU threads, > 0 = explicit OpenMP thread count
     int sharpness = 0;             // 0..100 adaptive halo-clamped unsharp mask
     EnhanceMode mode = EnhanceMode::PRIME;
     bool enhance_faces = true;     // Photo 2.0 Faces: SCRFD 5pt + CodeFormer blind face restoration
@@ -197,6 +209,16 @@ struct UpscaleConfig {
     ImageFormat format = ImageFormat::JPEG;
     int jpeg_quality = 98;         // 90..100 (default 98), always 4:4:4 full chroma
     int output_fd = -1;
+    std::string output_file_path;  // Desktop/CLI UTF-8 output file path when output_fd < 0
+};
+
+struct GpuDeviceDesc {
+    int index = 0;
+    std::string name;
+    uint32_t vendor_id = 0;
+    uint32_t type = 0;             // 0=Discrete, 1=Integrated, 2=Virtual, 3=CPU
+    uint32_t heap_budget_mb = 0;
+    bool is_recommended = false;
 };
 
 struct UpscaleResult {

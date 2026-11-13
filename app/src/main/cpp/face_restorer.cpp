@@ -1,4 +1,5 @@
 #include "face_restorer.h"
+#include "platform_io.h"
 
 #include "allocator.h"
 #include "cpu.h"
@@ -176,13 +177,23 @@ bool read_asset_or_file_text(
     (void)mgr;
 #endif
     if (!fallback_dir.empty()) {
-        const std::string full = fallback_dir + "/" + asset_rel_path;
-        std::ifstream ifs(full, std::ios::binary);
-        if (ifs) {
-            std::ostringstream oss;
-            oss << ifs.rdbuf();
-            out_text = oss.str();
-            return !out_text.empty();
+        const std::string full = resolve_model_file_path(fallback_dir, asset_rel_path);
+        std::FILE* fp = open_utf8_file(full, "rb");
+        if (fp != nullptr) {
+            if (std::fseek(fp, 0, SEEK_END) == 0) {
+                const long len = std::ftell(fp);
+                if (len > 0 && std::fseek(fp, 0, SEEK_SET) == 0) {
+                    out_text.resize(static_cast<size_t>(len));
+                    const size_t nr = std::fread(&out_text[0], 1, static_cast<size_t>(len), fp);
+                    std::fclose(fp);
+                    if (nr == static_cast<size_t>(len)) {
+                        return true;
+                    }
+                    out_text.clear();
+                    return false;
+                }
+            }
+            std::fclose(fp);
         }
     }
     return false;
@@ -206,7 +217,12 @@ bool load_net_from_asset_or_dir(
         }
 #endif
         if (prc != 0 && !fallback_dir.empty()) {
-            prc = net.load_param((fallback_dir + "/" + param_rel).c_str());
+            const std::string full_param = resolve_model_file_path(fallback_dir, param_rel);
+            std::FILE* fp = open_utf8_file(full_param, "rb");
+            if (fp != nullptr) {
+                prc = net.load_param(fp);
+                std::fclose(fp);
+            }
         }
     }
     if (prc != 0) {
@@ -223,7 +239,12 @@ bool load_net_from_asset_or_dir(
     (void)mgr;
 #endif
     if (mrc != 0 && !fallback_dir.empty()) {
-        mrc = net.load_model((fallback_dir + "/" + bin_rel).c_str());
+        const std::string full_bin = resolve_model_file_path(fallback_dir, bin_rel);
+        std::FILE* fp = open_utf8_file(full_bin, "rb");
+        if (fp != nullptr) {
+            mrc = net.load_model(fp);
+            std::fclose(fp);
+        }
     }
     if (mrc != 0) {
         FACE_LOGW("Failed loading bin %s (rc=%d)", bin_rel.c_str(), mrc);
@@ -445,7 +466,11 @@ ncnn::Option make_codeformer_option(
 ) {
     ncnn::Option opt;
     opt.lightmode = true;
+#ifdef __ANDROID__
     opt.num_threads = std::clamp(cpu_threads, 1, 4);
+#else
+    opt.num_threads = std::clamp(cpu_threads, 1, 16);
+#endif
     opt.blob_allocator = blob_alloc;
     opt.workspace_allocator = work_alloc;
     opt.use_vulkan_compute = use_vulkan;
@@ -473,6 +498,7 @@ bool run_codeformer_batch_once(
     const std::string& patched_gen_param,
     const std::vector<std::vector<uint8_t>>& aligned_patches,
     bool use_vulkan,
+    int gpu_index,
     bool disable_fp16,
     int cpu_threads,
     const std::atomic<bool>& cancelled,
@@ -481,6 +507,22 @@ bool run_codeformer_batch_once(
     const size_t n_faces = aligned_patches.size();
     restored_patches_out.assign(n_faces, {});
     if (n_faces == 0) return true;
+
+    ncnn::VulkanDevice* vkdev = nullptr;
+    int resolved_gpu = -1;
+    if (use_vulkan) {
+        const int gcount = ncnn::get_gpu_count();
+        if (gcount <= 0) {
+            return false;
+        }
+        resolved_gpu = (gpu_index >= 0 && gpu_index < gcount)
+            ? gpu_index
+            : ncnn::get_default_gpu_index();
+        vkdev = (resolved_gpu >= 0) ? ncnn::get_gpu_device(resolved_gpu) : nullptr;
+        if (!vkdev || !vkdev->is_valid()) {
+            return false;
+        }
+    }
 
     // Thread-safe PoolAllocator is mandatory because CodeFormer MultiHeadAttention allocates
     // per-head workspace inside OpenMP parallel loops.
@@ -495,6 +537,10 @@ bool run_codeformer_batch_once(
     {
         ncnn::Net enc;
         enc.opt = make_codeformer_option(use_vulkan, disable_fp16, cpu_threads, &blob_alloc, &work_alloc);
+        if (use_vulkan && vkdev) {
+            enc.opt.vulkan_device_index = resolved_gpu;
+            enc.set_vulkan_device(vkdev);
+        }
         if (!load_net_from_asset_or_dir(
                 enc,
                 asset_manager,
@@ -576,6 +622,10 @@ bool run_codeformer_batch_once(
     {
         ncnn::Net gen;
         gen.opt = make_codeformer_option(use_vulkan, disable_fp16, cpu_threads, &blob_alloc, &work_alloc);
+        if (use_vulkan && vkdev) {
+            gen.opt.vulkan_device_index = resolved_gpu;
+            gen.set_vulkan_device(vkdev);
+        }
         if (!load_net_from_asset_or_dir(
                 gen,
                 asset_manager,
@@ -825,7 +875,8 @@ int restore_faces_codeformer(
     int cpu_threads,
     const std::atomic<bool>& cancelled,
     const std::function<void(int done, int total)>& face_progress_cb,
-    const std::string& fallback_models_dir
+    const std::string& fallback_models_dir,
+    int gpu_index
 ) {
     if (!final_rgb || out_w < 64 || out_h < 64 || faces.empty() || face_strength <= 0.02f) {
         return 0;
@@ -909,6 +960,7 @@ int restore_faces_codeformer(
                 patched_gen_param,
                 aligned_patches,
                 /*use_vulkan=*/true,
+                gpu_index,
                 disable_fp16,
                 cpu_threads,
                 cancelled,
@@ -925,6 +977,7 @@ int restore_faces_codeformer(
                 patched_gen_param,
                 aligned_patches,
                 /*use_vulkan=*/false,
+                /*gpu_index=*/-1,
                 /*disable_fp16=*/false,
                 cpu_threads,
                 cancelled,

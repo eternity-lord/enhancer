@@ -53,7 +53,8 @@ int restore_faces_codeformer(
     int cpu_threads,
     const std::atomic<bool>& cancelled,
     const std::function<void(int done, int total)>& face_progress_cb = nullptr,
-    const std::string& fallback_models_dir = ""
+    const std::string& fallback_models_dir = "",
+    int gpu_index = -1
 );
 
 } // namespace enhancer
