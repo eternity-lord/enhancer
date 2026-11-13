@@ -29,25 +29,38 @@ function Test-FileSha256([string]$Path, [string]$ExpectedHex) {
     return ($actual -eq $ExpectedHex.ToLowerInvariant())
 }
 
-# 1. Download & cache prebuilt ncnn-20261020-windows-vs2022.zip (Vulkan SimpleVK + OpenMP + AVX2/AVX512)
-$CachedNcnnZip = Join-Path $CacheDir "ncnn-$NcnnVer-windows-vs2022.zip"
+# 1. Detect installed Visual Studio version (VS2022 v17 -> vs2022, VS2026 v18 -> vs2026)
+$VsTag = "vs2022"
+$VsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+if (Test-Path $VsWhere) {
+    $VsVer = (& $VsWhere -latest -property installationVersion) | Select-Object -First 1
+    Write-Host "[prepare_windows_deps] Detected Visual Studio version: $VsVer"
+    if ($VsVer -match "^18\.") {
+        $VsTag = "vs2026"
+    }
+}
+
+# Download & cache prebuilt ncnn-20261020-windows-$VsTag.zip (Vulkan SimpleVK + OpenMP + AVX2/AVX512)
+$CachedNcnnZip = Join-Path $CacheDir "ncnn-$NcnnVer-windows-$VsTag.zip"
 if (-not (Test-Path $CachedNcnnZip)) {
-    $NcnnUrl = "https://github.com/Tencent/ncnn/releases/download/$NcnnVer/ncnn-$NcnnVer-windows-vs2022.zip"
+    $NcnnUrl = "https://github.com/Tencent/ncnn/releases/download/$NcnnVer/ncnn-$NcnnVer-windows-$VsTag.zip"
     Write-Host "[prepare_windows_deps] Downloading $NcnnUrl ..."
     curl.exe -fsSL --retry 3 --retry-delay 2 -o $CachedNcnnZip $NcnnUrl
 }
 
 $NcnnConfigCheck = Join-Path $NcnnExtractDir "x64\lib\cmake\ncnn\ncnnConfig.cmake"
-if (-not (Test-Path $NcnnConfigCheck)) {
-    Write-Host "[prepare_windows_deps] Extracting ncnn Windows VS2022 SDK..."
+$NcnnMarker = Join-Path $NcnnExtractDir ".vstag-$VsTag"
+if ((-not (Test-Path $NcnnConfigCheck)) -or (-not (Test-Path $NcnnMarker))) {
+    Write-Host "[prepare_windows_deps] Extracting ncnn Windows $VsTag SDK..."
     $TmpNcnn = Join-Path $DepsDir "_tmp_ncnn"
     if (Test-Path $TmpNcnn) { Remove-Item -Recurse -Force $TmpNcnn }
     Expand-Archive -Path $CachedNcnnZip -DestinationPath $TmpNcnn -Force
     if (Test-Path $NcnnExtractDir) { Remove-Item -Recurse -Force $NcnnExtractDir }
-    Move-Item -Path (Join-Path $TmpNcnn "ncnn-$NcnnVer-windows-vs2022") -Destination $NcnnExtractDir
+    Move-Item -Path (Join-Path $TmpNcnn "ncnn-$NcnnVer-windows-$VsTag") -Destination $NcnnExtractDir
+    Set-Content -Path $NcnnMarker -Value $VsTag
     Remove-Item -Recurse -Force $TmpNcnn
 }
-Write-Host "[prepare_windows_deps] Verified ncnn x64 CMake SDK at $NcnnConfigCheck"
+Write-Host "[prepare_windows_deps] Verified ncnn ($VsTag) x64 CMake SDK at $NcnnConfigCheck"
 
 # 2. Download & SHA-256 verify CodeFormer FP16 weights (encoder.bin + generator.bin)
 $CachedEnc = Join-Path $CacheDir "codeformer_encoder.bin"

@@ -32,9 +32,16 @@ jobs:
         shell: pwsh
         run: |
           $NcnnCmakeDir = (Resolve-Path "windows\deps\ncnn-win-x64\x64\lib\cmake\ncnn").Path
-          cmake -S windows -B windows/build/native -G "Visual Studio 17 2022" -A x64 `
-            "-Dncnn_DIR=$NcnnCmakeDir"
-          cmake --build windows/build/native --config Release --parallel
+          cmake -S windows -B windows/build/native -A x64 "-Dncnn_DIR=$NcnnCmakeDir" 2>&1 | Tee-Object -FilePath cmake_cfg.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content cmake_cfg.log | Select-Object -Last 30 | ForEach-Object { Write-Output "::error::$_" }
+            exit 1
+          }
+          cmake --build windows/build/native --config Release --parallel 2>&1 | Tee-Object -FilePath cmake_bld.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content cmake_bld.log | Select-String -Pattern "error |LNK|FAILED" | Select-Object -Last 30 | ForEach-Object { Write-Output "::error::$($_.Line)" }
+            exit 1
+          }
 
       - name: Publish .NET 8.0 WPF Desktop Studio (Self-Contained win-x64)
         shell: pwsh
@@ -46,7 +53,11 @@ jobs:
             -p:PublishSingleFile=false `
             -p:DebugType=None `
             -p:DebugSymbols=false `
-            -o windows/dist/Enhancer-v3.0-Windows-x64
+            -o windows/dist/Enhancer-v3.0-Windows-x64 2>&1 | Tee-Object -FilePath dotnet_pub.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content dotnet_pub.log | Select-String -Pattern "error " | Select-Object -Last 30 | ForEach-Object { Write-Output "::error::$($_.Line)" }
+            exit 1
+          }
 
       - name: Stage Native Engine, MSVC/OpenMP Runtimes & Offline AI Models
         shell: pwsh
