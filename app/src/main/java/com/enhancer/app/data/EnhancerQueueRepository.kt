@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.annotation.StringRes
 import com.enhancer.app.R
 import com.enhancer.app.model.AppLanguageMode
+import com.enhancer.app.model.EnhanceModePreset
 import com.enhancer.app.model.EnhancerSettings
 import com.enhancer.app.model.OutputFormat
 import com.enhancer.app.model.QueueErrorKind
@@ -491,7 +492,9 @@ class EnhancerQueueRepository(private val appContext: Context) {
         modelUsed: UpscaleModel,
         targetUsed: TargetPreset,
         appliedSettings: EnhancerSettings,
-        elapsedSeconds: Float
+        elapsedSeconds: Float,
+        facesDetected: Int = 0,
+        facesRestored: Int = 0
     ) {
         if (currentlyRunningId == itemId) {
             currentlyRunningId = null
@@ -518,6 +521,8 @@ class EnhancerQueueRepository(private val appContext: Context) {
                             usedCpuFallback = usedCpuFallback,
                             activeTileSize = finalTileSize,
                             fallbackSummary = fallbackSummary,
+                            facesDetected = facesDetected,
+                            facesRestored = facesRestored,
                             modelUsed = modelUsed,
                             targetUsed = targetUsed,
                             appliedSettings = appliedSettings,
@@ -594,25 +599,39 @@ class EnhancerQueueRepository(private val appContext: Context) {
     }
 
     private fun loadSettings(): EnhancerSettings {
+        val mode = runCatching {
+            EnhanceModePreset.valueOf(prefs.getString("enhance_mode", EnhanceModePreset.BALANCED.name)!!)
+        }.getOrDefault(EnhanceModePreset.BALANCED)
+
         val model = runCatching {
-            UpscaleModel.valueOf(prefs.getString("model", UpscaleModel.PHOTO_X4.name)!!)
-        }.getOrDefault(UpscaleModel.PHOTO_X4)
+            UpscaleModel.valueOf(prefs.getString("model", mode.defaultModel.name)!!)
+        }.getOrDefault(mode.defaultModel)
 
         val target = runCatching {
             TargetPreset.valueOf(prefs.getString("target", TargetPreset.UHD_4K.name)!!)
         }.getOrDefault(TargetPreset.UHD_4K)
 
-        // Verified OFF by default across settings & preferences
+        val enhanceFaces = prefs.getBoolean("enhance_faces", mode.defaultFaces)
+        val faceStrength = prefs.getInt("face_strength", mode.defaultFaceStrength).coerceIn(0, 100)
+        val lightAi = prefs.getBoolean("light_ai", mode.defaultLightAi)
+        val lightAiStrength = prefs.getInt("light_ai_strength", mode.defaultLightAiStrength).coerceIn(0, 100)
+        val denoiseStrength = prefs.getInt("denoise_strength", mode.defaultDenoise).coerceIn(0, 100)
+        val ultraIntensity = prefs.getInt("ultra_intensity", mode.defaultUltraIntensity).coerceIn(0, 100)
+        val ultraSize = prefs.getInt("ultra_size", mode.defaultUltraSize).coerceIn(0, 100)
+
+        // Verified OFF by default across settings & preferences; legacy safe_mode migrates to unlocked forceCpu
         val maxQuality = prefs.getBoolean("max_quality", false)
         val ttaX8 = prefs.getBoolean("tta_x8", false)
-        val safeMode = prefs.getBoolean("safe_mode", false)
-        val sharpness = prefs.getInt("sharpness", 0).coerceIn(0, 100)
+        val legacySafeMode = prefs.getBoolean("safe_mode", false)
+        val forceCpu = prefs.getBoolean("force_cpu", legacySafeMode)
+        val sharpness = prefs.getInt("sharpness", mode.defaultSharpness).coerceIn(0, 100)
 
         val format = runCatching {
             OutputFormat.valueOf(prefs.getString("format", OutputFormat.JPEG.name)!!)
         }.getOrDefault(OutputFormat.JPEG)
 
         val jpegQuality = prefs.getInt("jpeg_quality", 98).coerceIn(90, 100)
+        val dpi = prefs.getInt("dpi", 300).coerceIn(72, 1200)
 
         val tile = runCatching {
             TileSizeOption.valueOf(prefs.getString("tile_size", TileSizeOption.AUTO.name)!!)
@@ -630,14 +649,24 @@ class EnhancerQueueRepository(private val appContext: Context) {
         }.getOrDefault(AppLanguageMode.SYSTEM)
 
         return EnhancerSettings(
+            enhanceMode = mode,
             model = model,
             target = target,
+            enhanceFaces = enhanceFaces,
+            faceStrength = faceStrength,
+            lightAi = lightAi,
+            lightAiStrength = lightAiStrength,
+            denoiseStrength = denoiseStrength,
+            ultraIntensity = ultraIntensity,
+            ultraSize = ultraSize,
             maxQuality = maxQuality,
             ttaX8 = ttaX8,
-            safeMode = safeMode,
+            safeMode = false,
+            forceCpu = forceCpu,
             sharpness = sharpness,
             format = format,
             jpegQuality = jpegQuality,
+            dpi = dpi,
             tileSize = tile,
             disableFp16 = disableFp16,
             languageMode = lang
@@ -646,14 +675,24 @@ class EnhancerQueueRepository(private val appContext: Context) {
 
     private fun saveSettings(s: EnhancerSettings) {
         prefs.edit()
+            .putString("enhance_mode", s.enhanceMode.name)
             .putString("model", s.model.name)
             .putString("target", s.target.name)
+            .putBoolean("enhance_faces", s.enhanceFaces)
+            .putInt("face_strength", s.faceStrength.coerceIn(0, 100))
+            .putBoolean("light_ai", s.lightAi)
+            .putInt("light_ai_strength", s.lightAiStrength.coerceIn(0, 100))
+            .putInt("denoise_strength", s.denoiseStrength.coerceIn(0, 100))
+            .putInt("ultra_intensity", s.ultraIntensity.coerceIn(0, 100))
+            .putInt("ultra_size", s.ultraSize.coerceIn(0, 100))
             .putBoolean("max_quality", s.maxQuality)
             .putBoolean("tta_x8", s.ttaX8)
-            .putBoolean("safe_mode", s.safeMode)
+            .putBoolean("safe_mode", false)
+            .putBoolean("force_cpu", s.forceCpu)
             .putInt("sharpness", s.sharpness.coerceIn(0, 100))
             .putString("format", s.format.name)
             .putInt("jpeg_quality", s.jpegQuality.coerceIn(90, 100))
+            .putInt("dpi", s.dpi.coerceIn(72, 1200))
             .putString("tile_size", s.tileSize.name)
             .putBoolean("disable_fp16", s.disableFp16)
             .putString("lang_mode", s.languageMode.name)

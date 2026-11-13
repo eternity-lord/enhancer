@@ -6,12 +6,23 @@ on:
 
 jobs:
   build:
-    name: Build Enhancer v2.0 Debug APK (arm64-v8a)
+    name: Build Enhancer v3.0 Universal Debug APK (arm64-v8a / armeabi-v7a / x86_64)
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
+
+      - name: Cache neural weights & multi-ABI ncnn SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/enhancer-build-deps
+          key: enhancer-deps-v3-ncnn20261020-cf-cfe0fe2d
+
+      - name: Prepare CodeFormer weights & multi-ABI ncnn
+        run: |
+          chmod +x ./scripts/prepare_build_deps.sh
+          ./scripts/prepare_build_deps.sh
 
       - name: Ensure Android SDK Platform 34, Build-Tools, CMake, and pinned NDK
         run: |
@@ -51,7 +62,7 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build Debug APK
+      - name: Build Universal Debug APK
         shell: bash
         run: |
           set -o pipefail
@@ -62,23 +73,41 @@ jobs:
             exit 1
           fi
 
-      - name: Prepare Enhancer-v2.0-debug.apk
+      - name: Verify packaged neural models & ABIs in Enhancer-v3.0-debug.apk
         run: |
           APK_DIR="app/build/outputs/apk/debug"
-          TARGET_APK="$APK_DIR/Enhancer-v2.0-debug.apk"
+          TARGET_APK="$APK_DIR/Enhancer-v3.0-debug.apk"
           if [ ! -f "$TARGET_APK" ]; then
             FOUND_APK="$(find "$APK_DIR" -maxdepth 2 -name '*-debug.apk' | head -n 1)"
             if [ -z "$FOUND_APK" ]; then
               echo "::error::No debug APK found under $APK_DIR"
               exit 1
             fi
-            mv "$FOUND_APK" "$TARGET_APK"
+            cp -f "$FOUND_APK" "$TARGET_APK"
           fi
           ls -lh "$TARGET_APK"
+          APK_LIST="$(unzip -l "$TARGET_APK")"
+          echo "$APK_LIST" | grep -E "lib/.*/libenhancer\.so|assets/models/(codeformer|scrfd|realesr|lsdir)"
+          for req in \
+            "lib/arm64-v8a/libenhancer.so" \
+            "lib/armeabi-v7a/libenhancer.so" \
+            "lib/x86_64/libenhancer.so" \
+            "assets/models/codeformer_encoder.bin" \
+            "assets/models/codeformer_generator.bin" \
+            "assets/models/scrfd_2.5g_kps.bin" \
+            "assets/models/realesrgan-x4plus.bin" \
+            "assets/models/realesr-general-x4v3.bin" \
+            "assets/models/realesr-general-wdn-x4v3.bin" \
+            "assets/models/lsdir-compact-x4.bin"; do
+            if ! echo "$APK_LIST" | grep -Fq "$req"; then
+              echo "::error::Missing required APK entry: $req"
+              exit 1
+            fi
+          done
 
-      - name: Upload Enhancer-v2.0-debug artifact
+      - name: Upload Enhancer-v3.0-debug artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Enhancer-v2.0-debug
-          path: app/build/outputs/apk/debug/Enhancer-v2.0-debug.apk
+          name: Enhancer-v3.0-debug
+          path: app/build/outputs/apk/debug/Enhancer-v3.0-debug.apk
           if-no-files-found: error

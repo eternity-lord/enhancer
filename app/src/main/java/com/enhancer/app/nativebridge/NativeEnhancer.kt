@@ -12,7 +12,7 @@ interface NativeProgressListener {
 
 /**
  * Constructed directly from C++ (`enhancer_jni.cpp` `build_native_result`).
- * Constructor signature MUST remain `(IIILjava/lang/String;ZILjava/lang/String;Ljava/lang/String;)V`.
+ * Constructor signature MUST remain `(IIILjava/lang/String;ZILjava/lang/String;Ljava/lang/String;II)V`.
  */
 data class NativeResult(
     val statusCode: Int,
@@ -22,7 +22,9 @@ data class NativeResult(
     val usedCpuFallback: Boolean,
     val finalTileSize: Int,
     val fallbackSummary: String,
-    val errorDetail: String
+    val errorDetail: String,
+    val facesDetected: Int,
+    val facesRestored: Int
 )
 
 /**
@@ -44,7 +46,8 @@ enum class NativeStatusCode(val code: Int) {
     ERR_NCNN_LOAD_PARAM(-10),
     ERR_NCNN_LOAD_MODEL(-11),
     ERR_NCNN_INPUT(-12),
-    ERR_NCNN_EXTRACT(-13);
+    ERR_NCNN_EXTRACT(-13),
+    ERR_VULKAN_CORRUPTED(-14);
 
     companion object {
         fun fromCode(code: Int): NativeStatusCode {
@@ -62,7 +65,9 @@ data class NativeRunOutcome(
     val usedCpuFallback: Boolean,
     val finalTileSize: Int,
     val fallbackSummary: String,
-    val errorDetail: String
+    val errorDetail: String,
+    val facesDetected: Int = 0,
+    val facesRestored: Int = 0
 )
 
 data class NativeSelfTestResult(
@@ -105,6 +110,13 @@ data class NativeSeamTestResult(
 )
 
 object NativeEnhancer {
+    /**
+     * Serializes all native ncnn/Vulkan inference sessions across startup FP16 calibration,
+     * Self-Test, Seam-Test, and queue jobs so two threads never contend on `VulkanDevice` allocators.
+     * Cancellation calls (`requestCancel`, `cancelSeamTest`) intentionally remain lock-free.
+     */
+    private val nativeInferenceLock = Any()
+
     init {
         System.loadLibrary("enhancer")
     }
@@ -159,7 +171,17 @@ object NativeEnhancer {
         maxQuality: Boolean,
         ttaX8: Boolean,
         safeMode: Boolean,
+        forceCpu: Boolean,
         sharpness: Int,
+        enhanceMode: Int,
+        enhanceFaces: Boolean,
+        faceStrength: Float,
+        lightAi: Boolean,
+        lightAiStrength: Float,
+        denoiseStrength: Float,
+        ultraIntensity: Float,
+        ultraSize: Float,
+        dpi: Int,
         outputFormat: Int,
         jpegQuality: Int,
         outputFd: Int,
@@ -180,7 +202,9 @@ object NativeEnhancer {
     }
 
     fun runSelfTest(assetManager: AssetManager): NativeSelfTestResult {
-        val arr = runCatching { nativeRunSelfTest(assetManager) }.getOrNull()
+        val arr = synchronized(nativeInferenceLock) {
+            runCatching { nativeRunSelfTest(assetManager) }.getOrNull()
+        }
         if (arr == null || arr.size < 7) {
             val msg = "JNI nativeRunSelfTest returned null or incomplete result"
             return NativeSelfTestResult(
@@ -221,7 +245,9 @@ object NativeEnhancer {
     }
 
     fun calibrateFp16Policy(assetManager: AssetManager): Fp16PolicyCalibration {
-        val arr = runCatching { nativeCalibrateFp16Policy(assetManager) }.getOrNull()
+        val arr = synchronized(nativeInferenceLock) {
+            runCatching { nativeCalibrateFp16Policy(assetManager) }.getOrNull()
+        }
         if (arr == null || arr.size < 4) {
             val defOff = shouldDefaultDisableFp16()
             return Fp16PolicyCalibration(
@@ -248,7 +274,9 @@ object NativeEnhancer {
                 onProgressUpdate(progress, tileSize, backend)
             }
         }
-        val arr = runCatching { nativeRunSeamTest(assetManager, listener) }.getOrNull()
+        val arr = synchronized(nativeInferenceLock) {
+            runCatching { nativeRunSeamTest(assetManager, listener) }.getOrNull()
+        }
         if (arr == null || arr.size < 5) {
             val msg = "JNI nativeRunSeamTest returned null or incomplete result"
             return NativeSeamTestResult(
@@ -318,13 +346,23 @@ object NativeEnhancer {
         maxQuality: Boolean,
         ttaX8: Boolean,
         safeMode: Boolean = false,
+        forceCpu: Boolean = false,
         sharpness: Int,
+        enhanceModeCode: Int = 2,
+        enhanceFaces: Boolean = true,
+        faceStrength: Int = 70,
+        lightAi: Boolean = true,
+        lightAiStrength: Int = 45,
+        denoiseStrength: Int = 18,
+        ultraIntensity: Int = 65,
+        ultraSize: Int = 45,
+        dpi: Int = 300,
         outputFormatCode: Int,
         jpegQuality: Int = 98,
         detachedOutputFd: Int,
         onProgressUpdate: (progress: Int, backend: String, tileSize: Int) -> Unit
     ): NativeRunOutcome {
-        var latestBackend = if (safeMode) "CPU" else ""
+        var latestBackend = if (safeMode || forceCpu) "CPU" else ""
         var latestTile = if (safeMode) 64 else if (tileSize > 0) tileSize else 200
 
         val listener = object : NativeProgressListener {
@@ -335,24 +373,36 @@ object NativeEnhancer {
             }
         }
 
-        val res = nativeUpscaleImage(
-            assetManager = assetManager,
-            srcBitmap = sourceBitmap,
-            paramAssetPath = paramAssetPath,
-            binAssetPath = binAssetPath,
-            modelScale = modelScale,
-            targetLongSide = targetLongSide,
-            tileSize = if (safeMode) 64 else tileSize,
-            disableFp16 = disableFp16,
-            maxQuality = if (safeMode) false else maxQuality,
-            ttaX8 = if (safeMode) false else ttaX8,
-            safeMode = safeMode,
-            sharpness = sharpness.coerceIn(0, 100),
-            outputFormat = outputFormatCode,
-            jpegQuality = jpegQuality.coerceIn(90, 100),
-            outputFd = detachedOutputFd,
-            progressListener = listener
-        )
+        val res = synchronized(nativeInferenceLock) {
+            nativeUpscaleImage(
+                assetManager = assetManager,
+                srcBitmap = sourceBitmap,
+                paramAssetPath = paramAssetPath,
+                binAssetPath = binAssetPath,
+                modelScale = modelScale,
+                targetLongSide = targetLongSide,
+                tileSize = if (safeMode) 64 else tileSize,
+                disableFp16 = disableFp16,
+                maxQuality = if (safeMode) false else maxQuality,
+                ttaX8 = if (safeMode) false else ttaX8,
+                safeMode = safeMode,
+                forceCpu = forceCpu || safeMode,
+                sharpness = sharpness.coerceIn(0, 100),
+                enhanceMode = enhanceModeCode.coerceIn(0, 6),
+                enhanceFaces = enhanceFaces,
+                faceStrength = (faceStrength.coerceIn(0, 100) / 100f),
+                lightAi = lightAi,
+                lightAiStrength = (lightAiStrength.coerceIn(0, 100) / 100f),
+                denoiseStrength = (denoiseStrength.coerceIn(0, 100) / 100f),
+                ultraIntensity = (ultraIntensity.coerceIn(0, 100) / 100f),
+                ultraSize = (ultraSize.coerceIn(0, 100) / 100f),
+                dpi = if (dpi > 0) dpi else 300,
+                outputFormat = outputFormatCode,
+                jpegQuality = jpegQuality.coerceIn(90, 100),
+                outputFd = detachedOutputFd,
+                progressListener = listener
+            )
+        }
 
         if (res == null) {
             return NativeRunOutcome(
@@ -364,7 +414,9 @@ object NativeEnhancer {
                 usedCpuFallback = false,
                 finalTileSize = latestTile,
                 fallbackSummary = "",
-                errorDetail = "[code=-7 ERR_EXCEPTION] step=JNI_return | requested_bytes=0 | tile=$latestTile | backend=${latestBackend.ifBlank { "CPU" }} | ncnn_rc=0 | detail=JNI returned null NativeResult"
+                errorDetail = "[code=-7 ERR_EXCEPTION] step=JNI_return | requested_bytes=0 | tile=$latestTile | backend=${latestBackend.ifBlank { "CPU" }} | ncnn_rc=0 | detail=JNI returned null NativeResult",
+                facesDetected = 0,
+                facesRestored = 0
             )
         }
 
@@ -377,7 +429,9 @@ object NativeEnhancer {
             usedCpuFallback = res.usedCpuFallback,
             finalTileSize = if (res.finalTileSize > 0) res.finalTileSize else latestTile,
             fallbackSummary = res.fallbackSummary,
-            errorDetail = res.errorDetail
+            errorDetail = res.errorDetail,
+            facesDetected = res.facesDetected,
+            facesRestored = res.facesRestored
         )
     }
 }

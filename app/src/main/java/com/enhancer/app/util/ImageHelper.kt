@@ -178,13 +178,16 @@ object ImageHelper {
     ): String {
         val cleanBase = baseName.ifBlank { "image" }
         val targetSlug = target.fileSlug(model.scale)
+        val modeSlug = settings?.enhanceMode?.fileSlug?.let { "_$it" } ?: ""
         val extras = buildString {
-            if (settings?.safeMode == true) append("_safe")
+            if (settings?.enhanceFaces == true) append("_faces")
+            if (settings?.lightAi == true) append("_lightAI")
+            if (settings?.usesCpuOnly == true) append("_cpu")
             if (settings?.effectiveMaxQuality == true) append("_maxQ")
             if (settings?.effectiveTtaX8 == true) append("_tta8")
-            if ((settings?.sharpness ?: 0) > 0) append("_s${settings?.sharpness}")
+            append("_300dpi")
         }
-        return "${cleanBase}_${targetSlug}_${model.fileSlug}${extras}.${format.extension}"
+        return "${cleanBase}_${targetSlug}${modeSlug}_${model.fileSlug}${extras}.${format.extension}"
     }
 
     fun isQuarterTurnOrientation(orientation: Int): Boolean {

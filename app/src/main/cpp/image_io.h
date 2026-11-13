@@ -50,7 +50,8 @@ bool write_rgb_image_to_fd(
     int jpeg_quality,
     std::string* out_error,
     EnhancerStatus* out_status = nullptr,
-    uint64_t* out_requested_bytes = nullptr
+    uint64_t* out_requested_bytes = nullptr,
+    int dpi = 300
 );
 
 } // namespace enhancer

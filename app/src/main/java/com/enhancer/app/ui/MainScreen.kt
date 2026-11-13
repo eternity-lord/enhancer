@@ -57,11 +57,8 @@ import com.enhancer.app.BuildConfig
 import com.enhancer.app.R
 import com.enhancer.app.data.QueueUiState
 import com.enhancer.app.model.AppLanguageMode
-import com.enhancer.app.model.OutputFormat
+import com.enhancer.app.model.EnhancerSettings
 import com.enhancer.app.model.QueueItemStatus
-import com.enhancer.app.model.TargetPreset
-import com.enhancer.app.model.TileSizeOption
-import com.enhancer.app.model.UpscaleModel
 
 @Composable
 fun MainScreen(
@@ -78,16 +75,7 @@ fun MainScreen(
     onRetryItem: (String) -> Unit,
     onOpenCompare: (String) -> Unit,
     onOpenAbout: () -> Unit,
-    onModelSelected: (UpscaleModel) -> Unit,
-    onTargetSelected: (TargetPreset) -> Unit,
-    onMaxQualityChanged: (Boolean) -> Unit,
-    onTtaX8Changed: (Boolean) -> Unit,
-    onSafeModeChanged: (Boolean) -> Unit,
-    onSharpnessChanged: (Int) -> Unit,
-    onFormatSelected: (OutputFormat) -> Unit,
-    onJpegQualityChanged: (Int) -> Unit,
-    onTileSizeSelected: (TileSizeOption) -> Unit,
-    onDisableFp16Changed: (Boolean) -> Unit,
+    onSettingsChanged: (EnhancerSettings) -> Unit,
     onLanguageSelected: (AppLanguageMode) -> Unit
 ) {
     val waitingCount = uiState.items.count { it.status == QueueItemStatus.WAITING }
@@ -168,21 +156,12 @@ fun MainScreen(
                 }
             }
 
-            // Controls Card (Model, Target, Safe Mode, Max Quality, TTA x8, Sharpness, Format/JPEG 4:4:4, Tile Size, fp16)
+            // Studio Controls Card (7 AI Modes, Enhance Faces, Light AI, 2K/4K/8K, 300 DPI — never locked!)
             item {
                 ControlsSection(
                     settings = uiState.settings,
-                    enabled = !uiState.isServiceRunning,
-                    onModelSelected = onModelSelected,
-                    onTargetSelected = onTargetSelected,
-                    onMaxQualityChanged = onMaxQualityChanged,
-                    onTtaX8Changed = onTtaX8Changed,
-                    onSafeModeChanged = onSafeModeChanged,
-                    onSharpnessChanged = onSharpnessChanged,
-                    onFormatSelected = onFormatSelected,
-                    onJpegQualityChanged = onJpegQualityChanged,
-                    onTileSizeSelected = onTileSizeSelected,
-                    onDisableFp16Changed = onDisableFp16Changed
+                    onSettingsChanged = onSettingsChanged,
+                    enabled = true
                 )
             }
 

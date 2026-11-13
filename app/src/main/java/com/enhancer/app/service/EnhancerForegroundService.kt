@@ -69,7 +69,7 @@ class EnhancerForegroundService : Service() {
             }
         }
 
-        val initialBackend = if (appInstance.queueRepository.state.value.settings.safeMode) "CPU" else "Vulkan"
+        val initialBackend = if (appInstance.queueRepository.state.value.settings.usesCpuOnly) "CPU" else "Vulkan"
         val initialNotification = buildRunningNotification(
             currentIndex = 1,
             totalCount = appInstance.queueRepository.state.value.items.size.coerceAtLeast(1),
@@ -222,7 +222,17 @@ class EnhancerForegroundService : Service() {
                 maxQuality = settings.effectiveMaxQuality,
                 ttaX8 = settings.effectiveTtaX8,
                 safeMode = settings.safeMode,
+                forceCpu = settings.forceCpu,
                 sharpness = settings.sharpness,
+                enhanceModeCode = settings.enhanceMode.nativeCode,
+                enhanceFaces = settings.enhanceFaces,
+                faceStrength = settings.faceStrength,
+                lightAi = settings.lightAi,
+                lightAiStrength = settings.lightAiStrength,
+                denoiseStrength = settings.denoiseStrength,
+                ultraIntensity = settings.ultraIntensity,
+                ultraSize = settings.ultraSize,
+                dpi = settings.dpi,
                 outputFormatCode = settings.format.nativeCode,
                 jpegQuality = settings.jpegQuality,
                 detachedOutputFd = pendingOutput.detachedFd,
@@ -278,7 +288,9 @@ class EnhancerForegroundService : Service() {
                         modelUsed = settings.model,
                         targetUsed = settings.target,
                         appliedSettings = settings,
-                        elapsedSeconds = elapsedSec
+                        elapsedSeconds = elapsedSec,
+                        facesDetected = outcome.facesDetected,
+                        facesRestored = outcome.facesRestored
                     )
                 }
             }
@@ -298,7 +310,8 @@ class EnhancerForegroundService : Service() {
                     NativeStatusCode.ERR_NCNN_LOAD_MODEL -> QueueErrorKind.NCNN_LOAD_MODEL
                     NativeStatusCode.ERR_NCNN_INPUT -> QueueErrorKind.NCNN_INPUT
                     NativeStatusCode.ERR_NCNN_EXTRACT -> QueueErrorKind.NCNN_EXTRACT
-                    NativeStatusCode.ERR_INFERENCE -> QueueErrorKind.INFERENCE
+                    NativeStatusCode.ERR_INFERENCE,
+                    NativeStatusCode.ERR_VULKAN_CORRUPTED -> QueueErrorKind.INFERENCE
                     NativeStatusCode.ERR_ENCODE_WRITE -> QueueErrorKind.ENCODE_WRITE
                     else -> QueueErrorKind.UNKNOWN
                 }

@@ -214,33 +214,36 @@ fun QueueItemCard(
                 }
             }
 
-            // Active v2.0 quality & safety feature chips (Safe Mode, Max Quality, TTA x8, Sharpness, Custom Settings)
-            if (activeSettings.safeMode ||
-                activeSettings.effectiveMaxQuality ||
-                activeSettings.effectiveTtaX8 ||
-                activeSettings.sharpness > 0 ||
-                item.settingsOverride != null
+            // Active v3.0 Studio AI mode & quality badges
+            Spacer(modifier = Modifier.height(8.dp))
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Spacer(modifier = Modifier.height(8.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    if (item.settingsOverride != null) {
-                        MiniFeatureBadge(stringResource(R.string.badge_custom_settings))
-                    }
-                    if (activeSettings.safeMode) {
-                        MiniFeatureBadge(stringResource(R.string.badge_safe_mode))
-                    }
-                    if (activeSettings.effectiveMaxQuality) {
-                        MiniFeatureBadge(stringResource(R.string.badge_max_quality))
-                    }
-                    if (activeSettings.effectiveTtaX8) {
-                        MiniFeatureBadge(stringResource(R.string.badge_tta_x8))
-                    }
-                    if (activeSettings.sharpness > 0) {
-                        MiniFeatureBadge(stringResource(R.string.badge_sharpness, activeSettings.sharpness))
-                    }
+                MiniFeatureBadge(stringResource(activeSettings.enhanceMode.labelRes))
+                if (item.status == QueueItemStatus.DONE && item.facesRestored > 0) {
+                    MiniFeatureBadge(stringResource(R.string.badge_faces_done, item.facesRestored))
+                } else if (activeSettings.enhanceFaces) {
+                    MiniFeatureBadge(stringResource(R.string.badge_faces))
+                }
+                if (activeSettings.lightAi) {
+                    MiniFeatureBadge(stringResource(R.string.badge_light_ai))
+                }
+                MiniFeatureBadge(stringResource(R.string.badge_300_dpi))
+                if (item.settingsOverride != null) {
+                    MiniFeatureBadge(stringResource(R.string.badge_custom_settings))
+                }
+                if (activeSettings.usesCpuOnly) {
+                    MiniFeatureBadge(stringResource(R.string.badge_safe_mode))
+                }
+                if (activeSettings.effectiveMaxQuality) {
+                    MiniFeatureBadge(stringResource(R.string.badge_max_quality))
+                }
+                if (activeSettings.effectiveTtaX8) {
+                    MiniFeatureBadge(stringResource(R.string.badge_tta_x8))
+                }
+                if (activeSettings.sharpness > 0) {
+                    MiniFeatureBadge(stringResource(R.string.badge_sharpness, activeSettings.sharpness))
                 }
             }
 
@@ -339,7 +342,7 @@ fun QueueItemCard(
                 Text(
                     text = stringResource(
                         R.string.done_summary,
-                        item.activeBackend.ifBlank { if (activeSettings.safeMode) "CPU" else "Vulkan" },
+                        item.activeBackend.ifBlank { if (activeSettings.usesCpuOnly) "CPU" else "Vulkan" },
                         item.elapsedSeconds
                     ),
                     style = MaterialTheme.typography.bodySmall,

@@ -115,7 +115,7 @@ jobject build_native_result(JNIEnv* env, const enhancer::UpscaleResult& res) {
     jmethodID ctor = env->GetMethodID(
         cls,
         "<init>",
-        "(IIILjava/lang/String;ZILjava/lang/String;Ljava/lang/String;)V"
+        "(IIILjava/lang/String;ZILjava/lang/String;Ljava/lang/String;II)V"
     );
     if (!ctor) {
         env->DeleteLocalRef(cls);
@@ -136,7 +136,9 @@ jobject build_native_result(JNIEnv* env, const enhancer::UpscaleResult& res) {
         static_cast<jboolean>(res.used_cpu_fallback ? JNI_TRUE : JNI_FALSE),
         static_cast<jint>(res.final_tile_size),
         j_fallback,
-        j_error
+        j_error,
+        static_cast<jint>(res.faces_detected),
+        static_cast<jint>(res.faces_restored)
     );
 
     if (j_backend) {
@@ -641,7 +643,17 @@ Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeUpscaleImage(
     jboolean max_quality,
     jboolean tta_x8,
     jboolean safe_mode,
+    jboolean force_cpu,
     jint sharpness,
+    jint enhance_mode,
+    jboolean enhance_faces,
+    jfloat face_strength,
+    jboolean light_ai,
+    jfloat light_ai_strength,
+    jfloat denoise_strength,
+    jfloat ultra_intensity,
+    jfloat ultra_size,
+    jint dpi,
     jint output_format,
     jint jpeg_quality,
     jint output_fd,
@@ -712,7 +724,20 @@ Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeUpscaleImage(
         cfg.max_quality = (max_quality == JNI_TRUE);
         cfg.tta_x8 = (tta_x8 == JNI_TRUE);
         cfg.safe_mode = (safe_mode == JNI_TRUE);
+        cfg.force_cpu = (force_cpu == JNI_TRUE);
         cfg.sharpness = static_cast<int>(sharpness);
+        const int clamped_mode = (enhance_mode >= 0 && enhance_mode <= 6)
+            ? static_cast<int>(enhance_mode)
+            : static_cast<int>(enhancer::EnhanceMode::BALANCED);
+        cfg.mode = static_cast<enhancer::EnhanceMode>(clamped_mode);
+        cfg.enhance_faces = (enhance_faces == JNI_TRUE);
+        cfg.face_strength = static_cast<float>(face_strength);
+        cfg.light_ai = (light_ai == JNI_TRUE);
+        cfg.light_ai_strength = static_cast<float>(light_ai_strength);
+        cfg.denoise_strength = static_cast<float>(denoise_strength);
+        cfg.ultra_intensity = static_cast<float>(ultra_intensity);
+        cfg.ultra_size = static_cast<float>(ultra_size);
+        cfg.dpi = (dpi > 0) ? static_cast<int>(dpi) : 300;
         cfg.format = (output_format == 1)
             ? enhancer::ImageFormat::PNG
             : enhancer::ImageFormat::JPEG;
