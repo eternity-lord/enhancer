@@ -1,6 +1,8 @@
 #include "upscaler.h"
 
+#include "face_restorer.h"
 #include "image_io.h"
+#include "photo_enhance_ops.h"
 #include "resizer.h"
 #include "tile_ops.h"
 
@@ -226,6 +228,8 @@ public:
         net_.opt.use_int8_arithmetic = false;
         net_.opt.use_bf16_packed = false;
         net_.opt.use_bf16_storage = false;
+        net_.opt.use_cooperative_matrix = false;
+        cpu_threads_ = threads;
 
         if (config.disable_fp16) {
             net_.opt.use_fp16_packed = false;
@@ -406,21 +410,23 @@ public:
 
     ncnn::Net& net() noexcept { return net_; }
     bool using_vulkan() const noexcept { return use_vulkan_; }
+    int cpu_threads() const noexcept { return cpu_threads_; }
     ncnn::VkAllocator* blob_vkallocator() const noexcept { return blob_vkallocator_; }
     ncnn::VkAllocator* staging_vkallocator() const noexcept { return staging_vkallocator_; }
-    ncnn::UnlockedPoolAllocator* blob_cpu_allocator() noexcept { return &blob_cpu_allocator_; }
+    ncnn::PoolAllocator* blob_cpu_allocator() noexcept { return &blob_cpu_allocator_; }
     ncnn::PoolAllocator* workspace_cpu_allocator() noexcept { return &workspace_cpu_allocator_; }
     const char* input_blob() const noexcept { return input_blob_.c_str(); }
     const char* output_blob() const noexcept { return output_blob_.c_str(); }
 
 private:
     ncnn::Net net_;
-    ncnn::UnlockedPoolAllocator blob_cpu_allocator_;
+    ncnn::PoolAllocator blob_cpu_allocator_;
     ncnn::PoolAllocator workspace_cpu_allocator_;
     ncnn::VulkanDevice* vkdev_ = nullptr;
     ncnn::VkAllocator* blob_vkallocator_ = nullptr;
     ncnn::VkAllocator* staging_vkallocator_ = nullptr;
     bool use_vulkan_ = false;
+    int cpu_threads_ = 4;
     std::string input_blob_ = "data";
     std::string output_blob_ = "output";
 };
@@ -723,23 +729,95 @@ TilePassOutcome run_tile_inference_planar(
                         const float* ch_g = ch_g_mat;
                         const float* ch_b = ch_b_mat;
 
-                        // Guard against mobile GPU Vulkan driver NaN/Inf shader output across distributed samples
+                        // Runtime Vulkan tile integrity verifier: catches NaN/Inf, shader overflow,
+                        // zero/gray constant buffer collapse, brightness corruption, and chroma collapse.
                         if (session.using_vulkan()) {
-                            const size_t total_px = static_cast<size_t>(expected_w) * static_cast<size_t>(expected_h);
-                            const size_t step = std::max<size_t>(1u, total_px / 64u);
-                            for (size_t sidx = 0; sidx < total_px; sidx += step) {
-                                if (!std::isfinite(ch_r[sidx]) || !std::isfinite(ch_g[sidx]) || !std::isfinite(ch_b[sidx])) {
+                            const int gx_cnt = std::min(16, pass_in_w);
+                            const int gy_cnt = std::min(16, pass_in_h);
+                            double in_sum_y = 0.0, in_sum_y2 = 0.0, in_chroma = 0.0;
+                            double out_sum_y = 0.0, out_sum_y2 = 0.0, out_chroma = 0.0;
+                            size_t n_samp = 0;
+
+                            for (int gy = 0; gy < gy_cnt && !pass_failed; ++gy) {
+                                const int iy = (gy * pass_in_h + pass_in_h / 2) / gy_cnt;
+                                const int oy = std::min(expected_h - 1, iy * model_scale + model_scale / 2);
+                                for (int gx = 0; gx < gx_cnt; ++gx) {
+                                    const int ix = (gx * pass_in_w + pass_in_w / 2) / gx_cnt;
+                                    const int ox = std::min(expected_w - 1, ix * model_scale + model_scale / 2);
+                                    const size_t oidx = static_cast<size_t>(oy) * static_cast<size_t>(expected_w) +
+                                        static_cast<size_t>(ox);
+
+                                    const float rf = ch_r[oidx];
+                                    const float gf = ch_g[oidx];
+                                    const float bf = ch_b[oidx];
+                                    if (!std::isfinite(rf) || !std::isfinite(gf) || !std::isfinite(bf) ||
+                                        rf < -2.0f || rf > 3.0f ||
+                                        gf < -2.0f || gf > 3.0f ||
+                                        bf < -2.0f || bf > 3.0f) {
+                                        out_failure = FailureInfo{
+                                            EnhancerStatus::ERR_VULKAN_CORRUPTED,
+                                            "vulkan_nan_or_overflow_tile",
+                                            static_cast<uint64_t>(expected_out_bytes),
+                                            nominal_tile_size,
+                                            backend_label,
+                                            0,
+                                            "non-finite or out-of-range float in Vulkan output tile"
+                                        };
+                                        pass_failed = true;
+                                        break;
+                                    }
+
+                                    const uint8_t* ipx = pass_rgb +
+                                        (static_cast<size_t>(iy) * static_cast<size_t>(pass_in_w) +
+                                         static_cast<size_t>(ix)) * 3u;
+                                    const double ir = static_cast<double>(ipx[0]);
+                                    const double ig = static_cast<double>(ipx[1]);
+                                    const double ib = static_cast<double>(ipx[2]);
+                                    const double iy_val = 0.299 * ir + 0.587 * ig + 0.114 * ib;
+                                    in_sum_y += iy_val;
+                                    in_sum_y2 += iy_val * iy_val;
+                                    in_chroma += std::fabs(ir - ig) + std::fabs(ig - ib);
+
+                                    const double or_v = std::clamp(static_cast<double>(rf) * 255.0, 0.0, 255.0);
+                                    const double og_v = std::clamp(static_cast<double>(gf) * 255.0, 0.0, 255.0);
+                                    const double ob_v = std::clamp(static_cast<double>(bf) * 255.0, 0.0, 255.0);
+                                    const double oy_val = 0.299 * or_v + 0.587 * og_v + 0.114 * ob_v;
+                                    out_sum_y += oy_val;
+                                    out_sum_y2 += oy_val * oy_val;
+                                    out_chroma += std::fabs(or_v - og_v) + std::fabs(og_v - ob_v);
+                                    ++n_samp;
+                                }
+                            }
+
+                            if (!pass_failed && n_samp >= 16) {
+                                const double inv_n = 1.0 / static_cast<double>(n_samp);
+                                const double in_mean = in_sum_y * inv_n;
+                                const double out_mean = out_sum_y * inv_n;
+                                const double in_std = std::sqrt(std::max(0.0, in_sum_y2 * inv_n - in_mean * in_mean));
+                                const double out_std = std::sqrt(std::max(0.0, out_sum_y2 * inv_n - out_mean * out_mean));
+                                const double in_chr = in_chroma * inv_n;
+                                const double out_chr = out_chroma * inv_n;
+
+                                const bool gray_or_zero_collapse = (in_std > 6.0 && out_std < 0.35);
+                                const bool brightness_corrupted = (std::fabs(out_mean - in_mean) > 75.0);
+                                const bool chroma_collapsed = (in_chr > 18.0 && out_chr < 1.0);
+
+                                if (gray_or_zero_collapse || brightness_corrupted || chroma_collapsed) {
                                     out_failure = FailureInfo{
-                                        EnhancerStatus::ERR_INFERENCE,
-                                        "vulkan_nan_or_inf_output",
+                                        EnhancerStatus::ERR_VULKAN_CORRUPTED,
+                                        "vulkan_corrupted_or_gray_tile",
                                         static_cast<uint64_t>(expected_out_bytes),
                                         nominal_tile_size,
                                         backend_label,
                                         0,
-                                        "non-finite float detected in Vulkan output tile"
+                                        "in_mean=" + format_fixed(in_mean, 1) +
+                                            ", out_mean=" + format_fixed(out_mean, 1) +
+                                            ", in_std=" + format_fixed(in_std, 1) +
+                                            ", out_std=" + format_fixed(out_std, 2) +
+                                            ", in_chr=" + format_fixed(in_chr, 1) +
+                                            ", out_chr=" + format_fixed(out_chr, 2)
                                     };
                                     pass_failed = true;
-                                    break;
                                 }
                             }
                         }
@@ -1263,6 +1341,8 @@ UpscaleResult execute_pipeline_internal(
     bool active_max_quality = config.max_quality;
     bool active_tta = config.tta_x8;
     bool active_vulkan = !config.force_cpu;
+    bool active_disable_fp16 = config.disable_fp16;
+    bool tried_alt_vulkan_fp = false;
     int active_tile = requested_base_tile;
 
     std::vector<std::string> fallback_steps;
@@ -1287,16 +1367,155 @@ UpscaleResult execute_pipeline_internal(
         }
     };
 
-    // Initialize model session ONCE per job (re-initialized ONLY if fallback switches Vulkan -> CPU)
+    // -------------------------------------------------------------------------
+    // Stage 0 & Stage 1A: Compact work_rgb_buf preparation, Old Photo restore,
+    // Pre-SR Denoise/Deblock, and SCRFD 5-point Face Detection BEFORE SR load!
+    // Unlocks Java Bitmap immediately so 2 full buffers NEVER coexist.
+    // -------------------------------------------------------------------------
+    NativeByteBuffer work_rgb_buf;
+    const uint8_t* work_ptr = src_rgba;
+    bool work_is_rgba = true;
+    size_t work_stride = static_cast<size_t>(src_stride_bytes);
+    int cur_work_w = src_w;
+    int cur_work_h = src_h;
+    std::vector<NormalizedFace> detected_faces;
+
+    const DimensionPlan initial_plan = compute_dimensions(
+        src_w,
+        src_h,
+        config.model_scale,
+        config.target_long_side,
+        active_max_quality
+    );
+    if (initial_plan.final_w <= 0 || initial_plan.final_h <= 0 ||
+        initial_plan.work_w <= 0 || initial_plan.work_h <= 0) {
+        unlock_source_once();
+        result.status = EnhancerStatus::ERR_INVALID_ARGS;
+        result.error_detail = format_step_diagnostic(
+            EnhancerStatus::ERR_INVALID_ARGS,
+            "compute_dimensions(initial)",
+            0,
+            active_tile,
+            active_vulkan ? "Vulkan" : "CPU",
+            0,
+            ""
+        );
+        return result;
+    }
+
+    const bool want_old_photo = (config.mode == EnhanceMode::OLD_PHOTO);
+    float effective_denoise = std::clamp(config.denoise_strength, 0.0f, 1.0f);
+    if (config.mode == EnhanceMode::STRONG && effective_denoise < 0.45f) {
+        effective_denoise = 0.45f;
+    } else if (config.mode == EnhanceMode::BALANCED && effective_denoise < 0.14f) {
+        effective_denoise = 0.14f;
+    }
+    const bool want_pre_denoise = (effective_denoise > 0.01f);
+    const bool want_faces = (config.enhance_faces && config.face_strength > 0.02f);
+    const bool need_initial_work_rgb =
+        initial_plan.pre_downscaled || want_old_photo || want_pre_denoise || want_faces;
+
+    if (need_initial_work_rgb) {
+        size_t init_work_bytes = 0;
+        if (!checked_image_bytes(initial_plan.work_w, initial_plan.work_h, 3, init_work_bytes)) {
+            unlock_source_once();
+            result.status = EnhancerStatus::ERR_INVALID_ARGS;
+            result.error_detail = "checked_image_bytes(initial_work_rgb) overflow";
+            return result;
+        }
+        report_progress(2, active_vulkan ? "Preparing" : "CPU");
+        work_rgb_buf = allocate_native_buffer(init_work_bytes);
+        if (!work_rgb_buf) {
+            unlock_source_once();
+            result.status = EnhancerStatus::ERR_OUT_OF_MEMORY;
+            result.error_detail = format_step_diagnostic(
+                EnhancerStatus::ERR_OUT_OF_MEMORY,
+                "malloc(initial_work_rgb)",
+                static_cast<uint64_t>(init_work_bytes),
+                active_tile,
+                active_vulkan ? "Vulkan" : "CPU",
+                0,
+                ""
+            );
+            return result;
+        }
+
+        if (initial_plan.pre_downscaled) {
+            if (!downscale_rgba_to_rgb_box(
+                    src_rgba,
+                    src_w,
+                    src_h,
+                    src_stride_bytes,
+                    work_rgb_buf.get(),
+                    initial_plan.work_w,
+                    initial_plan.work_h,
+                    cancel_flag
+                )) {
+                unlock_source_once();
+                result.status = cancel_flag.load() ? EnhancerStatus::CANCELLED : EnhancerStatus::ERR_INFERENCE;
+                return result;
+            }
+        } else {
+            #pragma omp parallel for schedule(static) if (src_h >= 64)
+            for (int y = 0; y < src_h; ++y) {
+                const uint8_t* srow = src_rgba + static_cast<size_t>(y) * static_cast<size_t>(src_stride_bytes);
+                uint8_t* drow = work_rgb_buf.get() + static_cast<size_t>(y) * static_cast<size_t>(src_w) * 3u;
+                for (int x = 0; x < src_w; ++x) {
+                    drow[x * 3 + 0] = srow[x * 4 + 0];
+                    drow[x * 3 + 1] = srow[x * 4 + 1];
+                    drow[x * 3 + 2] = srow[x * 4 + 2];
+                }
+            }
+        }
+
+        // Unlock & release Java ARGB_8888 Bitmap immediately!
+        unlock_source_once();
+        cur_work_w = initial_plan.work_w;
+        cur_work_h = initial_plan.work_h;
+        work_ptr = work_rgb_buf.get();
+        work_is_rgba = false;
+        work_stride = static_cast<size_t>(cur_work_w) * 3u;
+
+        if (want_old_photo) {
+            if (!apply_old_photo_pre_restore(work_rgb_buf.get(), cur_work_w, cur_work_h, 0.85f, cancel_flag)) {
+                result.status = EnhancerStatus::CANCELLED;
+                return result;
+            }
+        }
+        if (want_pre_denoise) {
+            if (!apply_pre_denoise_deblock(work_rgb_buf.get(), cur_work_w, cur_work_h, effective_denoise, cancel_flag)) {
+                result.status = EnhancerStatus::CANCELLED;
+                return result;
+            }
+        }
+        if (want_faces) {
+            detected_faces = detect_faces_scrfd(asset_manager, work_rgb_buf.get(), cur_work_w, cur_work_h);
+            result.faces_detected = static_cast<int>(detected_faces.size());
+        }
+    }
+
+    if (cancel_flag.load(std::memory_order_relaxed)) {
+        unlock_source_once();
+        result.status = EnhancerStatus::CANCELLED;
+        return result;
+    }
+
+    // Initialize model session ONCE per job (re-initialized ONLY if fallback switches precision or CPU)
     ScopedModelSession session;
     std::string backend_label;
     uint32_t gpu_heap_budget_mb = 0;
     FailureInfo init_failure;
 
+    auto make_session_cfg = [&]() -> UpscaleConfig {
+        UpscaleConfig scfg = config;
+        scfg.disable_fp16 = active_disable_fp16;
+        return scfg;
+    };
+
     if (active_vulkan) {
         if (session.init(
                 asset_manager,
-                config,
+                make_session_cfg(),
                 true,
                 active_tile,
                 backend_label,
@@ -1339,7 +1558,7 @@ UpscaleResult execute_pipeline_internal(
         FailureInfo cpu_init_failure;
         if (!session.init(
                 asset_manager,
-                config,
+                make_session_cfg(),
                 false,
                 active_tile,
                 backend_label,
@@ -1358,18 +1577,13 @@ UpscaleResult execute_pipeline_internal(
 
     result.backend_used = backend_label;
     result.final_tile_size = active_tile;
-    report_progress(3, backend_label);
+    report_progress(4, backend_label);
 
     // Buffers managed across retries:
     // INVARIANT: At most ONE full-size output buffer (`final_rgb`) ever exists at any instant!
     DimensionPlan plan;
     bool plan_prepared = false;
     bool prepared_for_max_quality = false;
-
-    NativeByteBuffer work_rgb_buf;
-    const uint8_t* work_ptr = src_rgba;
-    bool work_is_rgba = true;
-    size_t work_stride = static_cast<size_t>(src_stride_bytes);
 
     NativeByteBuffer final_rgb;
     StreamingLanczos3Resizer stream_resizer;
@@ -1410,8 +1624,8 @@ UpscaleResult execute_pipeline_internal(
         result.out_width = plan.final_w;
         result.out_height = plan.final_h;
 
-        // Pre-downscale source into compact `work_rgb_buf` when Standard Rule 2 applies
-        if (plan.pre_downscaled && !work_rgb_buf) {
+        // Pre-downscale into compact `work_rgb_buf` when Standard Rule 2 applies
+        if (plan.pre_downscaled && (cur_work_w != plan.work_w || cur_work_h != plan.work_h)) {
             size_t work_bytes = 0;
             if (!checked_image_bytes(plan.work_w, plan.work_h, 3, work_bytes)) {
                 prep_fail = FailureInfo{
@@ -1426,9 +1640,8 @@ UpscaleResult execute_pipeline_internal(
                 return false;
             }
 
-            report_progress(4, backend_label);
-            work_rgb_buf = allocate_native_buffer(work_bytes);
-            if (!work_rgb_buf) {
+            NativeByteBuffer next_work_buf = allocate_native_buffer(work_bytes);
+            if (!next_work_buf) {
                 prep_fail = FailureInfo{
                     EnhancerStatus::ERR_OUT_OF_MEMORY,
                     "malloc(work_rgb_buf)",
@@ -1441,39 +1654,72 @@ UpscaleResult execute_pipeline_internal(
                 return false;
             }
 
-            const bool ok_down = downscale_rgba_to_rgb_box(
-                src_rgba,
-                src_w,
-                src_h,
-                src_stride_bytes,
-                work_rgb_buf.get(),
-                plan.work_w,
-                plan.work_h,
-                cancel_flag
-            );
-            if (!ok_down) {
-                work_rgb_buf.reset();
-                if (cancel_flag.load(std::memory_order_relaxed)) {
-                    prep_fail.status = EnhancerStatus::CANCELLED;
-                } else {
-                    prep_fail = FailureInfo{
-                        EnhancerStatus::ERR_INFERENCE,
-                        "downscale_rgba_to_rgb_box",
-                        static_cast<uint64_t>(work_bytes),
-                        active_tile,
-                        backend_label,
-                        0,
-                        ""
-                    };
+            if (work_rgb_buf) {
+                // Downscale existing RGB work_rgb_buf (safe even after src_rgba was unlocked!)
+                const double sx_scale = static_cast<double>(cur_work_w) / static_cast<double>(plan.work_w);
+                const double sy_scale = static_cast<double>(cur_work_h) / static_cast<double>(plan.work_h);
+                const uint8_t* sbase = work_rgb_buf.get();
+                uint8_t* dbase = next_work_buf.get();
+                #pragma omp parallel for schedule(static) if (plan.work_h >= 32)
+                for (int dy = 0; dy < plan.work_h; ++dy) {
+                    const int sy0 = std::clamp(static_cast<int>(dy * sy_scale), 0, cur_work_h - 1);
+                    const int sy1 = std::clamp(static_cast<int>((dy + 1) * sy_scale + 0.999), sy0 + 1, cur_work_h);
+                    for (int dx = 0; dx < plan.work_w; ++dx) {
+                        const int sx0 = std::clamp(static_cast<int>(dx * sx_scale), 0, cur_work_w - 1);
+                        const int sx1 = std::clamp(static_cast<int>((dx + 1) * sx_scale + 0.999), sx0 + 1, cur_work_w);
+                        uint32_t acc_r = 0, acc_g = 0, acc_b = 0, cnt = 0;
+                        for (int sy = sy0; sy < sy1; ++sy) {
+                            const uint8_t* srow = sbase + (static_cast<size_t>(sy) * cur_work_w + sx0) * 3u;
+                            for (int sx = sx0; sx < sx1; ++sx) {
+                                acc_r += srow[(sx - sx0) * 3 + 0];
+                                acc_g += srow[(sx - sx0) * 3 + 1];
+                                acc_b += srow[(sx - sx0) * 3 + 2];
+                                ++cnt;
+                            }
+                        }
+                        uint8_t* dpx = dbase + (static_cast<size_t>(dy) * plan.work_w + dx) * 3u;
+                        dpx[0] = static_cast<uint8_t>((acc_r + cnt / 2) / std::max(1u, cnt));
+                        dpx[1] = static_cast<uint8_t>((acc_g + cnt / 2) / std::max(1u, cnt));
+                        dpx[2] = static_cast<uint8_t>((acc_b + cnt / 2) / std::max(1u, cnt));
+                    }
                 }
-                return false;
+                work_rgb_buf = std::move(next_work_buf);
+            } else {
+                const bool ok_down = downscale_rgba_to_rgb_box(
+                    src_rgba,
+                    src_w,
+                    src_h,
+                    src_stride_bytes,
+                    next_work_buf.get(),
+                    plan.work_w,
+                    plan.work_h,
+                    cancel_flag
+                );
+                if (!ok_down) {
+                    if (cancel_flag.load(std::memory_order_relaxed)) {
+                        prep_fail.status = EnhancerStatus::CANCELLED;
+                    } else {
+                        prep_fail = FailureInfo{
+                            EnhancerStatus::ERR_INFERENCE,
+                            "downscale_rgba_to_rgb_box",
+                            static_cast<uint64_t>(work_bytes),
+                            active_tile,
+                            backend_label,
+                            0,
+                            ""
+                        };
+                    }
+                    return false;
+                }
+                work_rgb_buf = std::move(next_work_buf);
+                unlock_source_once();
             }
 
+            cur_work_w = plan.work_w;
+            cur_work_h = plan.work_h;
             work_ptr = work_rgb_buf.get();
             work_is_rgba = false;
             work_stride = static_cast<size_t>(plan.work_w) * 3u;
-            // Source bitmap is no longer needed once pre-downscaled; free it BEFORE allocating `final_rgb`!
-            unlock_source_once();
         }
 
         // Allocate the SINGLE full-size output RGB888 buffer (`final_w * final_h * 3` bytes)
@@ -1547,11 +1793,11 @@ UpscaleResult execute_pipeline_internal(
         return true;
     };
 
-    // Exact ordered fallback state machine requested by specification:
-    //   1) halve tile (down to 48)
-    //   2) disable TTA
-    //   3) disable Max quality
-    //   4) switch to CPU backend
+    // Ordered fallback state machine:
+    //   - On Vulkan shader/precision corruption (`ERR_VULKAN_CORRUPTED`): immediately toggle
+    //     Vulkan FP16 <-> Vulkan FP32 once, and if still corrupted switch straight to CPU without
+    //     unnecessarily sacrificing tile size, TTA, or Max quality!
+    //   - On OOM / resource failures: halve tile (down to 48) -> disable TTA -> disable Max quality -> CPU.
     auto advance_fallback_chain = [&](const FailureInfo& cause, FailureInfo& terminal_out) -> bool {
         session.clear_tile_allocators();
         if (!allow_fallbacks) {
@@ -1563,6 +1809,57 @@ UpscaleResult execute_pipeline_internal(
         if (cause.status == EnhancerStatus::ERR_INVALID_ARGS) {
             terminal_out = cause;
             return false;
+        }
+
+        if (cause.status == EnhancerStatus::ERR_VULKAN_CORRUPTED && active_vulkan) {
+            if (!tried_alt_vulkan_fp) {
+                tried_alt_vulkan_fp = true;
+                active_disable_fp16 = !active_disable_fp16;
+                session.release();
+                uint32_t unused_budget = 0;
+                FailureInfo alt_err;
+                if (session.init(
+                        asset_manager,
+                        make_session_cfg(),
+                        true,
+                        active_tile,
+                        backend_label,
+                        unused_budget,
+                        alt_err
+                    )) {
+                    record_fallback(
+                        std::string("toggled Vulkan ") + (active_disable_fp16 ? "FP16->FP32" : "FP32->FP16")
+                    );
+                    result.backend_used = backend_label;
+                    return true;
+                }
+            }
+
+            // Switch straight to CPU backend while preserving user's quality settings
+            active_vulkan = false;
+            result.used_cpu_fallback = true;
+            session.release();
+            active_tile = std::max(kMinTileSize, std::min(requested_base_tile, 128));
+            result.final_tile_size = active_tile;
+            record_fallback("switched to CPU backend (Vulkan output corrupted)");
+
+            uint32_t unused_budget = 0;
+            FailureInfo cpu_err;
+            if (!session.init(
+                    asset_manager,
+                    make_session_cfg(),
+                    false,
+                    active_tile,
+                    backend_label,
+                    unused_budget,
+                    cpu_err
+                )) {
+                terminal_out = cpu_err;
+                terminal_out.extra += " | after_fallbacks=" + build_fallback_summary();
+                return false;
+            }
+            result.backend_used = backend_label;
+            return true;
         }
 
         if (active_tile > kMinTileSize) {
@@ -1601,7 +1898,7 @@ UpscaleResult execute_pipeline_internal(
             FailureInfo cpu_err;
             if (!session.init(
                     asset_manager,
-                    config,
+                    make_session_cfg(),
                     false,
                     active_tile,
                     backend_label,
@@ -1626,7 +1923,7 @@ UpscaleResult execute_pipeline_internal(
 
     const int m = config.model_scale;
     const int progress_start = 5;
-    const int progress_end = 92;
+    const int progress_end = !detected_faces.empty() ? 78 : 88;
 
     // Per-tile scratch buffers (NEVER full-size!)
     std::vector<uint8_t> tile_rgb;
@@ -1728,7 +2025,8 @@ UpscaleResult execute_pipeline_internal(
         inference_done = true;
     }
 
-    // Release source bitmap + Vulkan/ncnn session + per-tile scratch BEFORE encoding
+    // Release source bitmap + Vulkan/ncnn session + per-tile scratch BEFORE Stage 3/4/5!
+    const int saved_cpu_threads = session.cpu_threads();
     unlock_source_once();
     tile_rgb.clear();
     tile_rgb.shrink_to_fit();
@@ -1754,6 +2052,69 @@ UpscaleResult execute_pipeline_internal(
         return result;
     }
 
+    // -------------------------------------------------------------------------
+    // Stage 3: Let's Enhance "Photo 2.0 Faces" (CodeFormer 512x512 Restoration)
+    // Runs ONLY after SR session & work_rgb_buf are freed so peak RAM stays minimal!
+    // -------------------------------------------------------------------------
+    if (want_faces && !detected_faces.empty() && final_rgb) {
+        report_progress(80, backend_label);
+        result.faces_restored = restore_faces_codeformer(
+            asset_manager,
+            final_rgb.get(),
+            plan.final_w,
+            plan.final_h,
+            detected_faces,
+            config.face_strength,
+            active_vulkan,
+            active_disable_fp16,
+            saved_cpu_threads,
+            cancel_flag,
+            [&](int done_faces, int total_faces) {
+                const int pct = 80 + (10 * done_faces) / std::max(1, total_faces);
+                report_progress(pct, backend_label);
+            }
+        );
+        if (cancel_flag.load(std::memory_order_relaxed)) {
+            result.status = EnhancerStatus::CANCELLED;
+            return result;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Stage 4A: Let's Enhance "Ultra" Multi-Scale Detail & Clarity Synthesis
+    // -------------------------------------------------------------------------
+    if (config.mode == EnhanceMode::ULTRA && config.ultra_intensity > 0.01f && final_rgb) {
+        report_progress(91, backend_label);
+        if (!apply_ultra_multiscale_detail(
+                final_rgb.get(),
+                plan.final_w,
+                plan.final_h,
+                config.ultra_intensity,
+                config.ultra_size,
+                cancel_flag
+            )) {
+            result.status = EnhancerStatus::CANCELLED;
+            return result;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Stage 4B: Let's Enhance "Light AI" Smart HDR Tone, Exposure & Vibrance
+    // -------------------------------------------------------------------------
+    if (config.light_ai && config.light_ai_strength > 0.01f && final_rgb) {
+        report_progress(93, backend_label);
+        if (!apply_light_ai_hdr(
+                final_rgb.get(),
+                plan.final_w,
+                plan.final_h,
+                config.light_ai_strength,
+                cancel_flag
+            )) {
+            result.status = EnhancerStatus::CANCELLED;
+            return result;
+        }
+    }
+
     // Optional min/max pixel range capture for synthetic self-test
     if (out_sample_stats_min_max != nullptr && final_rgb) {
         size_t total_bytes = 0;
@@ -1770,7 +2131,7 @@ UpscaleResult execute_pipeline_internal(
     }
 
     if (write_to_fd) {
-        report_progress(95, backend_label);
+        report_progress(96, backend_label);
         std::string encode_err;
         EnhancerStatus encode_status = EnhancerStatus::OK;
         uint64_t encode_req_bytes = 0;
@@ -1783,7 +2144,8 @@ UpscaleResult execute_pipeline_internal(
             config.jpeg_quality,
             &encode_err,
             &encode_status,
-            &encode_req_bytes
+            &encode_req_bytes,
+            config.dpi
         );
         const bool close_ok = owned_output_fd.close_now();
         final_rgb.reset();
@@ -1813,10 +2175,15 @@ UpscaleResult execute_pipeline_internal(
 
     size_t final_bytes = 0;
     checked_image_bytes(plan.final_w, plan.final_h, 3, final_bytes);
-    result.error_detail = "[OK] out=" + std::to_string(plan.final_w) + "x" + std::to_string(plan.final_h) +
-        " (" + std::to_string(final_bytes) + " B)" +
+    result.error_detail = "[OK] mode=" + std::string(enhance_mode_name(config.mode)) +
+        " | out=" + std::to_string(plan.final_w) + "x" + std::to_string(plan.final_h) +
+        " (" + std::to_string(final_bytes) + " B, " + std::to_string(config.dpi) + " DPI)" +
         " | tile=" + std::to_string(active_tile) +
         " | backend=" + backend_label +
+        (result.faces_detected > 0
+            ? (" | faces=" + std::to_string(result.faces_restored) + "/" + std::to_string(result.faces_detected))
+            : "") +
+        (config.light_ai ? " | LightAI=ON" : "") +
         (gpu_heap_budget_mb > 0 ? (" | gpu_heap_budget=" + std::to_string(gpu_heap_budget_mb) + " MB") : "") +
         (result.fallback_summary.empty() ? "" : (" | fallbacks=" + result.fallback_summary));
     return result;
@@ -1844,18 +2211,11 @@ bool should_default_disable_fp16_sync() noexcept {
             return g_fp16_calib_report.recommend_disable_fp16;
         }
     }
-    int create_rc = 0;
-    if (!ensure_vulkan_ready(&create_rc)) {
-        return false;
-    }
-    const int def_idx = ncnn::get_default_gpu_index();
-    if (def_idx < 0) {
-        return false;
-    }
-    const ncnn::GpuInfo& info = ncnn::get_gpu_info(def_idx);
-    const char* raw_name = info.device_name();
-    const std::string dev_name = (raw_name && raw_name[0] != '\0') ? raw_name : "";
-    return is_adreno_gpu(info.vendor_id(), dev_name);
+    // Default to standard FP16 storage + FP32 accumulation (`disable_fp16 = false`).
+    // Unconditionally forcing pure FP32 storage (`rgba32f`) on Adreno GPUs can trigger
+    // driver storage-image bugs; empirical calibration below only enables FP32 storage
+    // when verified cleaner AND valid against CPU reference.
+    return false;
 }
 
 Fp16CalibrationReport calibrate_vulkan_fp16_policy(AAssetManager* asset_manager) {
@@ -2017,11 +2377,14 @@ Fp16CalibrationReport calibrate_vulkan_fp16_policy(AAssetManager* asset_manager)
                 report.fp16_vs_cpu_mean_diff > 0.50f ||
                 report.fp16_vs_cpu_max_diff > 2.0f ||
                 report.fp16_inter_tile_diff > 0.25f;
+            const bool fp32_clean_and_better =
+                report.fp32_vs_cpu_mean_diff < 1.50f &&
+                (report.fp32_vs_cpu_mean_diff + 0.12f < report.fp16_vs_cpu_mean_diff ||
+                 report.fp16_inter_tile_diff > 0.25f);
 
-            report.recommend_disable_fp16 = report.is_adreno || fp16_drifts;
+            report.recommend_disable_fp16 = fp16_drifts && fp32_clean_and_better;
             if (report.recommend_disable_fp16) {
-                report.reason = "FP16 default: OFF (" +
-                    std::string(report.is_adreno ? "Qualcomm Adreno " : "FP16 drift detected on ") +
+                report.reason = "FP16 default: OFF (verified cleaner FP32 storage on " +
                     report.gpu_name + " [" + format_hex32(report.vendor_id) + "]; " +
                     "vk_fp16 vs CPU mean=" + format_fixed(report.fp16_vs_cpu_mean_diff, 2) +
                     " max=" + format_fixed(report.fp16_vs_cpu_max_diff, 2) +
@@ -2032,9 +2395,18 @@ Fp16CalibrationReport calibrate_vulkan_fp16_policy(AAssetManager* asset_manager)
                     " [" + format_hex32(report.vendor_id) + "] calibrated vs CPU: " +
                     "vk_fp16 mean=" + format_fixed(report.fp16_vs_cpu_mean_diff, 2) +
                     " max=" + format_fixed(report.fp16_vs_cpu_max_diff, 2) +
-                    " tileShift=" + format_fixed(report.fp16_inter_tile_diff, 2) + " lvl)";
+                    " tileShift=" + format_fixed(report.fp16_inter_tile_diff, 2) +
+                    ", vk_fp32 mean=" + format_fixed(report.fp32_vs_cpu_mean_diff, 2) + " lvl)";
             }
 
+            std::lock_guard<std::mutex> lock(g_fp16_calib_mutex);
+            g_fp16_calib_report = report;
+            g_fp16_calib_done = true;
+            return report;
+        } else if (ok_cpu && !ok_vk16_big && ok_vk32_big) {
+            report.recommend_disable_fp16 = true;
+            report.reason = "FP16 default: OFF (Vulkan FP16 failed verification, FP32 storage passed on " +
+                report.gpu_name + " [" + format_hex32(report.vendor_id) + "])";
             std::lock_guard<std::mutex> lock(g_fp16_calib_mutex);
             g_fp16_calib_report = report;
             g_fp16_calib_done = true;
@@ -2042,14 +2414,9 @@ Fp16CalibrationReport calibrate_vulkan_fp16_policy(AAssetManager* asset_manager)
         }
     }
 
-    report.recommend_disable_fp16 = report.is_adreno;
-    if (report.is_adreno) {
-        report.reason = "FP16 default: OFF — Qualcomm Adreno GPU detected (" +
-            report.gpu_name + " [" + format_hex32(report.vendor_id) + "])";
-    } else {
-        report.reason = "FP16 default: ON — " + report.gpu_name +
-            " [" + format_hex32(report.vendor_id) + "]";
-    }
+    report.recommend_disable_fp16 = false;
+    report.reason = "FP16 storage + FP32 accum default: ON — " + report.gpu_name +
+        " [" + format_hex32(report.vendor_id) + "]";
 
     {
         std::lock_guard<std::mutex> lock(g_fp16_calib_mutex);
@@ -2081,9 +2448,7 @@ std::string query_vulkan_diagnostics_summary() {
         const std::string dev_name = (name && name[0] != '\0') ? name : "GPU";
         const uint32_t budget_mb = vkdev ? vkdev->get_heap_budget() : 0u;
         if (fp16_line.empty()) {
-            fp16_line = is_adreno_gpu(vendor_id, dev_name)
-                ? ("FP16 default: OFF — Qualcomm Adreno GPU detected (" + dev_name + " [" + format_hex32(vendor_id) + "])")
-                : ("FP16 default: ON — " + dev_name + " [" + format_hex32(vendor_id) + "]");
+            fp16_line = "FP16 storage + FP32 accum default: ON — " + dev_name + " [" + format_hex32(vendor_id) + "]";
         }
         return "Vulkan GPU: " + dev_name + " [" + format_hex32(vendor_id) + "]" +
             " | GPU Heap Budget: " + std::to_string(budget_mb) + " MB" +

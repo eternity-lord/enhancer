@@ -264,7 +264,7 @@ fun AboutScreen(
                             Text(
                                 text = stringResource(
                                     R.string.diag_safe_mode_status,
-                                    if (uiState.settings.safeMode) {
+                                    if (uiState.settings.usesCpuOnly) {
                                         stringResource(R.string.diag_state_on)
                                     } else {
                                         stringResource(R.string.diag_state_off)
@@ -648,6 +648,7 @@ fun AboutScreen(
 
                     val ossEntries = listOf(
                         stringResource(R.string.oss_realesrgan),
+                        stringResource(R.string.oss_codeformer),
                         stringResource(R.string.oss_ncnn),
                         stringResource(R.string.oss_stb)
                     )

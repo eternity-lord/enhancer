@@ -37,7 +37,8 @@ int write_jpg_full_chroma_444(
     int width,
     int height,
     const uint8_t* rgb_data,
-    int quality
+    int quality,
+    int dpi
 ) {
     static const unsigned char std_dc_luminance_nrcodes[] = {0,0,1,5,1,1,1,1,1,1,0,0,0,0,0,0,0};
     static const unsigned char std_dc_luminance_values[] = {0,1,2,3,4,5,6,7,8,9,10,11};
@@ -159,8 +160,12 @@ int write_jpg_full_chroma_444(
     }
 
     // SOF0 sampling factor byte for Component 1 (Y) is fixed to 0x11 (1x1 -> 4:4:4 full chroma!)
-    static const unsigned char head0[] = {
-        0xFF,0xD8,0xFF,0xE0,0,0x10,'J','F','I','F',0,1,1,0,0,1,0,1,0,0,0xFF,0xDB,0,0x84,0
+    // JFIF APP0 carries print-ready DPI density (units = 1 -> dots per inch, default 300x300 DPI).
+    const int safe_dpi = std::clamp(dpi > 0 ? dpi : 300, 72, 2400);
+    const unsigned char dpi_hi = static_cast<unsigned char>((safe_dpi >> 8) & 0xFF);
+    const unsigned char dpi_lo = static_cast<unsigned char>(safe_dpi & 0xFF);
+    const unsigned char head0[] = {
+        0xFF,0xD8,0xFF,0xE0,0,0x10,'J','F','I','F',0,1,1,1,dpi_hi,dpi_lo,dpi_hi,dpi_lo,0,0,0xFF,0xDB,0,0x84,0
     };
     static const unsigned char head2[] = {
         0xFF,0xDA,0,0xC,3,1,0,2,0x11,3,0x11,0,0x3F,0
@@ -383,6 +388,7 @@ bool write_png_streaming_zlib(
     const uint8_t* rgb_data,
     int width,
     int height,
+    int dpi,
     EnhancerStatus& out_status,
     uint64_t& out_req_bytes,
     std::string& out_err
@@ -423,6 +429,15 @@ bool write_png_streaming_zlib(
     ihdr[11] = 0u; // Adaptive filtering
     ihdr[12] = 0u; // Non-interlaced
     write_png_chunk(writer, "IHDR", ihdr, sizeof(ihdr));
+
+    // Emit print-ready pHYs chunk (1 inch = 0.0254 m => 300 DPI = 11811 pixels/meter)
+    const int safe_dpi = std::clamp(dpi > 0 ? dpi : 300, 72, 2400);
+    const uint32_t ppm = static_cast<uint32_t>(static_cast<double>(safe_dpi) * 39.37007874 + 0.5);
+    uint8_t phys[9];
+    write_u32_be(phys + 0, ppm);
+    write_u32_be(phys + 4, ppm);
+    phys[8] = 1u; // unit = meter
+    write_png_chunk(writer, "pHYs", phys, sizeof(phys));
 
     z_stream strm{};
     const int init_rc = ::deflateInit2(&strm, 6, Z_DEFLATED, 15, 8, Z_FILTERED);
@@ -560,7 +575,8 @@ bool write_rgb_image_to_fd(
     int jpeg_quality,
     std::string* out_error,
     EnhancerStatus* out_status,
-    uint64_t* out_requested_bytes
+    uint64_t* out_requested_bytes,
+    int dpi
 ) {
     if (out_status) {
         *out_status = EnhancerStatus::OK;
@@ -607,6 +623,7 @@ bool write_rgb_image_to_fd(
             rgb_data,
             width,
             height,
+            dpi,
             png_status,
             png_req_bytes,
             png_err
@@ -642,7 +659,8 @@ bool write_rgb_image_to_fd(
             width,
             height,
             rgb_data,
-            clamped_quality
+            clamped_quality,
+            dpi
         );
         if (jpg_ok == 0) {
             if (out_status) {

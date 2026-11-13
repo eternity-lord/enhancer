@@ -30,6 +30,7 @@ enum class EnhancerStatus : int {
     ERR_NCNN_LOAD_MODEL = -11,
     ERR_NCNN_INPUT = -12,
     ERR_NCNN_EXTRACT = -13,
+    ERR_VULKAN_CORRUPTED = -14,
 };
 
 inline const char* status_code_name(EnhancerStatus s) noexcept {
@@ -49,6 +50,7 @@ inline const char* status_code_name(EnhancerStatus s) noexcept {
         case EnhancerStatus::ERR_NCNN_LOAD_MODEL: return "ERR_NCNN_LOAD_MODEL";
         case EnhancerStatus::ERR_NCNN_INPUT: return "ERR_NCNN_INPUT";
         case EnhancerStatus::ERR_NCNN_EXTRACT: return "ERR_NCNN_EXTRACT";
+        case EnhancerStatus::ERR_VULKAN_CORRUPTED: return "ERR_VULKAN_CORRUPTED";
     }
     return "ERR_UNKNOWN";
 }
@@ -113,6 +115,30 @@ enum class ImageFormat : int {
     PNG = 1,
 };
 
+// Let's Enhance (letsenhance.io) 7 AI Enhancement Modes
+enum class EnhanceMode : int {
+    PRIME = 0,       // Natural fidelity for portraits & photography (default)
+    GENTLE = 1,      // Smart Resize: minimal modification for text, logos, clean shots
+    BALANCED = 2,    // Everyday smartphone, travel & web photos
+    STRONG = 3,      // Heavy deblur, denoise & JPEG recovery for degraded inputs
+    ULTRA = 4,       // Flagship 4K/8K detail synthesizer with Intensity & Size of changes
+    DIGITAL_ART = 5, // Anime, illustrations, comics, vector art & AI art
+    OLD_PHOTO = 6,   // Vintage scan recovery: dust/speckle, fading, cast & face restore
+};
+
+inline const char* enhance_mode_name(EnhanceMode m) noexcept {
+    switch (m) {
+        case EnhanceMode::PRIME: return "Prime";
+        case EnhanceMode::GENTLE: return "Gentle";
+        case EnhanceMode::BALANCED: return "Balanced";
+        case EnhanceMode::STRONG: return "Strong";
+        case EnhanceMode::ULTRA: return "Ultra";
+        case EnhanceMode::DIGITAL_ART: return "Digital Art";
+        case EnhanceMode::OLD_PHOTO: return "Old Photo";
+    }
+    return "Prime";
+}
+
 struct FreeDeleter {
     void operator()(uint8_t* ptr) const noexcept {
         std::free(ptr);
@@ -159,6 +185,15 @@ struct UpscaleConfig {
     bool safe_mode = false;        // Default OFF: forces CPU + tile 64 + no Max quality + no TTA
     bool force_cpu = false;        // Forces CPU backend without overriding tile size unless safe_mode
     int sharpness = 0;             // 0..100 adaptive halo-clamped unsharp mask
+    EnhanceMode mode = EnhanceMode::PRIME;
+    bool enhance_faces = true;     // Photo 2.0 Faces: SCRFD 5pt + CodeFormer blind face restoration
+    float face_strength = 0.70f;   // 0.0..1.0 face restoration strength & CodeFormer fidelity balance
+    bool light_ai = false;         // Light AI: Smart HDR shadow/highlight, clarity & AWB/vibrance
+    float light_ai_strength = 0.45f; // 0.0..1.0 Light AI strength
+    float denoise_strength = 0.18f;  // 0.0..1.0 pre-SR JPEG deblocking & bilateral noise cleanup
+    float ultra_intensity = 0.65f;   // 0.0..1.0 Ultra mode micro-detail intensity
+    float ultra_size = 0.45f;        // 0.0..1.0 Ultra mode multi-scale Laplacian radius ("Size of changes")
+    int dpi = 300;                 // Print-ready DPI metadata (default 300 DPI)
     ImageFormat format = ImageFormat::JPEG;
     int jpeg_quality = 98;         // 90..100 (default 98), always 4:4:4 full chroma
     int output_fd = -1;
@@ -171,6 +206,8 @@ struct UpscaleResult {
     std::string backend_used;
     bool used_cpu_fallback = false;
     int final_tile_size = 200;
+    int faces_detected = 0;
+    int faces_restored = 0;
     std::string fallback_summary;  // Ordered human-readable chain of fallbacks used (empty if none)
     std::string error_detail;      // Full formatted diagnostic string on error or trace summary on OK
 };

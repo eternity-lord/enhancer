@@ -3,6 +3,14 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val generatedCodeformerAssetsDir = layout.buildDirectory.dir("generated/codeformer_assets")
+val generatedNcnnDir = layout.buildDirectory.dir("generated/ncnn-android-vulkan")
+
+val prepareEnhancerDeps by tasks.registering(Exec::class) {
+    workingDir = rootProject.projectDir
+    commandLine("bash", "${rootProject.projectDir}/scripts/prepare_build_deps.sh")
+}
+
 android {
     namespace = "com.enhancer.app"
     compileSdk = 34
@@ -10,13 +18,19 @@ android {
 
     defaultConfig {
         applicationId = "com.enhancer.app"
-        minSdk = 26
+        minSdk = 24
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.0"
+        versionCode = 3
+        versionName = "3.0"
+
+        val configuredAbis = (project.findProperty("enhancerAbis") as? String)
+            ?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() }
+            ?: listOf("arm64-v8a", "armeabi-v7a", "x86_64")
 
         ndk {
-            abiFilters += listOf("arm64-v8a")
+            abiFilters += configuredAbis
         }
 
         externalNativeBuild {
@@ -24,13 +38,20 @@ android {
                 cppFlags += listOf("-std=c++17", "-fexceptions")
                 arguments += listOf(
                     "-DANDROID_STL=c++_shared",
-                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+                    "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON",
+                    "-DENHANCER_GENERATED_NCNN_DIR=${generatedNcnnDir.get().asFile.absolutePath}"
                 )
             }
         }
 
         vectorDrawables {
             useSupportLibrary = true
+        }
+    }
+
+    sourceSets {
+        getByName("main") {
+            assets.srcDir(generatedCodeformerAssetsDir)
         }
     }
 
@@ -83,6 +104,15 @@ android {
     }
 }
 
+tasks.matching {
+    it.name == "preBuild" ||
+        it.name.startsWith("merge") && it.name.endsWith("Assets") ||
+        it.name.startsWith("configureCMake") ||
+        it.name.startsWith("buildCMake")
+}.configureEach {
+    dependsOn(prepareEnhancerDeps)
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.06.00")
     implementation(composeBom)
@@ -109,10 +139,9 @@ tasks.matching { it.name == "assembleDebug" }.configureEach {
     doLast {
         val debugApkDir = layout.buildDirectory.dir("outputs/apk/debug").get().asFile
         val sourceApk = debugApkDir.resolve("app-debug.apk")
-        val renamedApk = debugApkDir.resolve("Enhancer-v2.0-debug.apk")
+        val renamedApk = debugApkDir.resolve("Enhancer-v3.0-debug.apk")
         if (sourceApk.exists()) {
             sourceApk.copyTo(renamedApk, overwrite = true)
         }
     }
 }
-

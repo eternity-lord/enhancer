@@ -170,35 +170,8 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onOpenCompare = { id -> selectedResultItemId = id },
                                 onOpenAbout = { showAboutScreen = true },
-                                onModelSelected = { model ->
-                                    repo.updateSettings { it.copy(model = model) }
-                                },
-                                onTargetSelected = { target ->
-                                    repo.updateSettings { it.copy(target = target) }
-                                },
-                                onMaxQualityChanged = { maxQuality ->
-                                    repo.updateSettings { it.copy(maxQuality = maxQuality) }
-                                },
-                                onTtaX8Changed = { tta ->
-                                    repo.updateSettings { it.copy(ttaX8 = tta) }
-                                },
-                                onSafeModeChanged = { safe ->
-                                    repo.updateSettings { it.copy(safeMode = safe) }
-                                },
-                                onSharpnessChanged = { sharp ->
-                                    repo.updateSettings { it.copy(sharpness = sharp.coerceIn(0, 100)) }
-                                },
-                                onFormatSelected = { format ->
-                                    repo.updateSettings { it.copy(format = format) }
-                                },
-                                onJpegQualityChanged = { quality ->
-                                    repo.updateSettings { it.copy(jpegQuality = quality.coerceIn(90, 100)) }
-                                },
-                                onTileSizeSelected = { tile ->
-                                    repo.updateSettings { it.copy(tileSize = tile) }
-                                },
-                                onDisableFp16Changed = { disable ->
-                                    repo.updateSettings { it.copy(disableFp16 = disable) }
+                                onSettingsChanged = { updated ->
+                                    repo.updateSettings { updated }
                                 },
                                 onLanguageSelected = { mode ->
                                     repo.updateSettings { it.copy(languageMode = mode) }

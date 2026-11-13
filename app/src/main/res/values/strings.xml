@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Enhancer</string>
-    <string name="app_subtitle">Offline AI Image Upscaler • Real-ESRGAN</string>
-    <string name="offline_badge" formatted="false">100% Offline</string>
+    <string name="app_subtitle">Offline AI Photo Studio • Super-Res, Faces &amp; Light AI</string>
+    <string name="offline_badge" formatted="false">100% Offline • 300 DPI</string>
     <string name="version_format">Version %1$s</string>
     <string name="author_credit">Built by Mohammad Irani</string>
 
@@ -20,62 +20,116 @@
     <string name="pick_photos">Pick Photos</string>
     <string name="browse_files">Browse Files</string>
     <string name="clear_finished">Clear Finished</string>
-    <string name="empty_queue_title">No images selected yet</string>
-    <string name="empty_queue_body">Select one or multiple photos to upscale up to 4K or 8K completely offline on your device.</string>
+    <string name="empty_queue_title">No photos selected yet</string>
+    <string name="empty_queue_body">Pick one or multiple portraits, old scans, digital art, or camera shots to enhance up to 4K or 8K (300 DPI) completely offline.</string>
 
-    <!-- Controls section -->
-    <string name="settings_title">Upscale Settings</string>
-    <string name="label_model">AI Model</string>
-    <string name="model_photo">Photo (Real-ESRGAN x4plus)</string>
-    <string name="model_photo_desc">Best for natural camera photos and textures (4×)</string>
-    <string name="model_anime">Anime / Illustration (x4plus-anime)</string>
-    <string name="model_anime_desc">Sharp line art, digital art, and illustrations (4×)</string>
-    <string name="model_fast_x2">Fast 2× (AnimeVideo v3 x2)</string>
-    <string name="model_fast_x2_desc">Lightweight compact model for quick 2× upscaling</string>
-    <string name="model_fast_x3">Fast 3× (AnimeVideo v3 x3)</string>
-    <string name="model_fast_x3_desc">Lightweight compact model for quick 3× upscaling</string>
-    <string name="model_fast_x4">Fast 4× (AnimeVideo v3 x4)</string>
-    <string name="model_fast_x4_desc">Lightweight compact model for quick 4× upscaling</string>
+    <!-- Let's Enhance 7 Studio Modes -->
+    <string name="settings_title">AI Enhancement Studio</string>
+    <string name="label_enhance_mode">AI Enhancement Mode</string>
+    <string name="mode_prime">Prime</string>
+    <string name="mode_prime_desc">Natural camera realism &amp; true identity preservation (4× RRDB)</string>
+    <string name="mode_gentle">Gentle</string>
+    <string name="mode_gentle_desc">Minimal change — keeps text, logos, UI &amp; product labels crisp</string>
+    <string name="mode_balanced">Balanced</string>
+    <string name="mode_balanced_desc">Everyday travel, portrait &amp; social photos with clean clarity</string>
+    <string name="mode_strong">Strong</string>
+    <string name="mode_strong_desc">Heavy JPEG artifact removal, deblurring &amp; low-light rescue</string>
+    <string name="mode_ultra">Ultra</string>
+    <string name="mode_ultra_desc">Maximum 4K/8K micro-detail synthesis &amp; print clarity controls</string>
+    <string name="mode_digital_art">Digital Art</string>
+    <string name="mode_digital_art_desc">Sharp line art &amp; vibrant flat colors for anime, comics &amp; AI art</string>
+    <string name="mode_old_photo">Old Photo</string>
+    <string name="mode_old_photo_desc">Restores faded scans, grain &amp; faces while preserving B&amp;W / sepia</string>
 
-    <string name="label_target">Target Resolution</string>
+    <!-- Ultra multi-scale controls -->
+    <string name="label_ultra_intensity">Ultra Intensity: %1$d%%</string>
+    <string name="ultra_intensity_desc">Controls multi-scale micro-texture &amp; clarity synthesis strength</string>
+    <string name="label_ultra_size">Size of Changes: %1$d%%</string>
+    <string name="ultra_size_desc">0%% = fine pores &amp; weave • 50%% = medium detail • 100%% = bold structure</string>
+
+    <!-- Companion AI Engines: Enhance Faces & Light AI -->
+    <string name="label_enhance_faces">Enhance Faces (Photo 2.0)</string>
+    <string name="enhance_faces_desc">5-point landmark alignment + CodeFormer 512×512 eye, iris &amp; skin restoration (B&amp;W safe)</string>
+    <string name="label_face_strength">Face Restoration Strength: %1$d%%</string>
+
+    <string name="label_light_ai">Light AI (Smart HDR)</string>
+    <string name="light_ai_desc">Halo-free Guided Filter shadow recovery, highlight roll-off &amp; natural vibrance</string>
+    <string name="label_light_ai_strength">Light AI Strength: %1$d%%</string>
+
+    <string name="label_denoise">Denoise &amp; JPEG Cleanup</string>
+    <string name="denoise_off">Auto</string>
+    <string name="denoise_value">%1$d%%</string>
+    <string name="denoise_desc">Pre-SR bilateral chroma/luma denoise &amp; 8×8 JPEG block deblocking</string>
+
+    <!-- Neural SR Backbone chooser -->
+    <string name="label_model">Neural SR Backbone</string>
+    <string name="label_advanced_section">Advanced Engine &amp; Export Controls</string>
+    <string name="model_photo">Photo Pro 4× (Real-ESRGAN x4plus)</string>
+    <string name="model_photo_desc">Deep 23-RRDB photographic detail engine for portraits &amp; nature (4×)</string>
+    <string name="model_general_v3">General Photo 4× (RealESR-General v3)</string>
+    <string name="model_general_v3_desc">Balanced natural photo upscaler with fast clean texture (4×)</string>
+    <string name="model_general_wdn_v3">Denoise Photo 4× (RealESR-WDN v3)</string>
+    <string name="model_general_wdn_v3_desc">Wide-denoise neural backbone for compressed or noisy photos (4×)</string>
+    <string name="model_lsdir_x4">Crisp Text &amp; Detail 4× (LSDIR Compact)</string>
+    <string name="model_lsdir_x4_desc">High-acuity fidelity for text, architecture &amp; product shots (4×)</string>
+    <string name="model_anime">Digital Art &amp; Anime 4× (x4plus-anime)</string>
+    <string name="model_anime_desc">6-RRDB crisp line art, illustrations, vectors &amp; AI art (4×)</string>
+    <string name="model_fast_x2">Fast 2× (Compact v3 x2)</string>
+    <string name="model_fast_x2_desc">Ultra-fast compact model for quick 2× upscaling</string>
+    <string name="model_fast_x3">Fast 3× (Compact v3 x3)</string>
+    <string name="model_fast_x3_desc">Ultra-fast compact model for quick 3× upscaling</string>
+    <string name="model_fast_x4">Fast 4× (Compact v3 x4)</string>
+    <string name="model_fast_x4_desc">Ultra-fast compact model for quick 4× upscaling</string>
+
+    <string name="label_target">Target Resolution (300 DPI Print Ready)</string>
     <string name="target_native">Native (%1$d×)</string>
+    <string name="target_2k">2K (2560 px)</string>
     <string name="target_4k">4K (3840 px)</string>
     <string name="target_8k">8K (7680 px)</string>
 
-    <!-- v2.0 Quality & Post-processing controls -->
-    <string name="label_max_quality">Max Quality</string>
-    <string name="max_quality_desc">Full-resolution AI inference (never pre-downscales), 32 px feathered tile overlap, and streaming Lanczos3 supersampling (slower)</string>
-    <string name="label_tta_x8">TTA (x8 Mode)</string>
-    <string name="tta_x8_desc">Averages all 8 flip/rotate AI passes per tile for cleaner edges and fewer artifacts</string>
+    <!-- Quality & Post-processing controls (100% unlocked!) -->
+    <string name="label_max_quality">Max Quality Supersampling</string>
+    <string name="max_quality_desc">Full-resolution AI inference (never pre-downscales), 32 px feathered tile overlap &amp; streaming Lanczos3</string>
+    <string name="label_tta_x8">TTA (x8 Ensemble Mode)</string>
+    <string name="tta_x8_desc">Averages all 8 flip/rotate AI passes per tile for maximum edge precision</string>
     <string name="warn_tta_slow">x8 Mode runs 8 AI passes per tile and takes ~8× longer (cancelable anytime).</string>
 
-    <string name="label_sharpness">Sharpness</string>
+    <string name="label_sharpness">Edge Crispness</string>
     <string name="sharpness_off">Off</string>
     <string name="sharpness_value">%1$d</string>
     <string name="sharpness_desc">Adaptive halo-clamped unsharp mask applied per tile before blending</string>
 
-    <string name="label_format">Output Format</string>
-    <string name="format_jpeg">JPEG (4:4:4)</string>
-    <string name="format_png">PNG (Lossless)</string>
-    <string name="label_jpeg_quality">JPEG Quality: %1$d%% (4:4:4 Full Chroma)</string>
-    <string name="png_slow_huge_warning" formatted="false">PNG encoding is significantly slower and creates very large files (often 40–90 MB at 8K). JPEG 98% (4:4:4) is recommended.</string>
+    <string name="label_format">Output Format (300 DPI)</string>
+    <string name="format_jpeg">JPEG (4:4:4 • 300 DPI)</string>
+    <string name="format_png">PNG (Lossless • 300 DPI)</string>
+    <string name="label_jpeg_quality">JPEG Quality: %1$d%% (4:4:4 Full Chroma • 300 DPI)</string>
+    <string name="png_slow_huge_warning" formatted="false">PNG encoding creates large files (40–90 MB at 8K). Studio JPEG 98% (4:4:4, 300 DPI) is recommended.</string>
+
+    <string name="label_compute_backend">Compute Backend</string>
+    <string name="backend_auto_gpu">Auto GPU (Vulkan + Smart CPU Fallback)</string>
+    <string name="backend_force_cpu">CPU Precision (Multi-Core)</string>
+    <string name="btn_apply_low_ram_preset">Apply Low-RAM Preset (CPU • Tile 64)</string>
 
     <string name="label_tile_size">Tile Size</string>
     <string name="tile_auto">Auto (200)</string>
     <string name="tile_px">%1$d px</string>
 
-    <string name="label_disable_fp16">Disable fp16 Precision</string>
-    <string name="disable_fp16_desc">Uses full fp32 storage/uniforms to prevent smooth-surface tile drift (auto-enabled on Adreno GPUs; manually override anytime)</string>
+    <string name="label_disable_fp16">Force FP32 Storage Precision</string>
+    <string name="disable_fp16_desc">Uses 32-bit Vulkan storage buffers instead of FP16 storage (auto-calibrated per GPU; runtime verifier prevents gray/corrupted tiles)</string>
 
-    <string name="label_safe_mode">Safe Mode</string>
-    <string name="safe_mode_desc">Forces CPU + tile 64 + no Max Quality + no TTA for maximum stability</string>
-    <string name="safe_mode_active_banner">Safe Mode active: running on CPU with 64 px tiles, Max Quality OFF, and TTA OFF.</string>
-    <string name="badge_safe_mode">Safe Mode</string>
+    <string name="label_safe_mode">Low-RAM Safe Preset</string>
+    <string name="safe_mode_desc">Runs on CPU with 64 px tiles while keeping all controls unlocked</string>
+    <string name="safe_mode_active_banner">CPU Precision mode active: running multi-core CPU inference.</string>
+    <string name="badge_safe_mode">CPU Mode</string>
+    <string name="badge_faces">Faces AI</string>
+    <string name="badge_faces_done">Faces %1$d</string>
+    <string name="badge_light_ai">Light AI</string>
+    <string name="badge_300_dpi">300 DPI</string>
 
     <!-- Queue controls & overall status -->
     <string name="queue_header">Processing Queue (%1$d)</string>
     <string name="overall_progress_label">Overall: %1$d / %2$d done (%3$d%%)</string>
-    <string name="start_queue">Start Upscaling</string>
+    <string name="start_queue">Start Enhancing</string>
     <string name="resume_queue">Resume Queue</string>
     <string name="cancel_all">Cancel All</string>
     <string name="retry_all_failed">Retry Failed</string>
@@ -83,10 +137,10 @@
     <!-- Per-item info & warnings -->
     <string name="res_arrow">%1$d × %2$d  →  %3$d × %4$d</string>
     <string name="est_ram_label">Est. RAM: ~%1$d MB</string>
-    <string name="warn_high_ram">High RAM demand (~%1$d MB vs %2$d MB available). Try 4K, JPEG, or smaller tile size to avoid out-of-memory.</string>
+    <string name="warn_high_ram">High RAM demand (~%1$d MB vs %2$d MB free). Try 4K, JPEG, or smaller tile size if needed.</string>
     <string name="warn_large_source_limited_gain">Source is already large; it will be downscaled to %1$d × %2$d before the AI pass. Turn on Max Quality for full-res supersampling.</string>
-    <string name="info_post_lanczos">Model outputs %1$d × %2$d, then streams Lanczos3 resize to %3$d × %4$d.</string>
-    <string name="info_max_quality_supersample">Max Quality: full-res AI outputs %1$d × %2$d, then supersamples via Lanczos3 to %3$d × %4$d.</string>
+    <string name="info_post_lanczos">Model outputs %1$d × %2$d, then streams Lanczos3 resize to %3$d × %4$d (300 DPI).</string>
+    <string name="info_max_quality_supersample">Max Quality: full-res AI outputs %1$d × %2$d, then supersamples via Lanczos3 to %3$d × %4$d (300 DPI).</string>
     <string name="badge_max_quality">Max Quality</string>
     <string name="badge_tta_x8">TTA x8</string>
     <string name="badge_sharpness">Sharp +%1$d</string>
@@ -94,7 +148,7 @@
 
     <!-- Item statuses -->
     <string name="status_waiting">Waiting</string>
-    <string name="status_running">Running • %1$d%%</string>
+    <string name="status_running">Enhancing • %1$d%%</string>
     <string name="status_done">Done</string>
     <string name="status_failed">Failed</string>
     <string name="status_cancelled">Cancelled</string>
@@ -120,20 +174,20 @@
     <string name="label_original">Original</string>
     <string name="label_before">Original</string>
     <string name="label_after">Enhanced</string>
-    <string name="deep_zoom_fullres_note">True full-resolution tiled viewer (%1$d × %2$d saved in Pictures/Enhancer/%3$s). Pinch or double-tap to inspect 1:1 &amp; 400%% pixels; drag divider to compare against bicubic Original.</string>
+    <string name="deep_zoom_fullres_note">True full-resolution tiled viewer (%1$d × %2$d • 300 DPI saved in Pictures/Enhancer/%3$s). Pinch or double-tap to inspect 1:1 &amp; 400%% pixels; drag divider to compare against Original.</string>
     <string name="reset_zoom">Fit</string>
     <string name="zoom_one_to_one" formatted="false">1:1</string>
     <string name="hud_zoom_pct">%1$d%%</string>
     <string name="filter_bilinear">Bilinear</string>
     <string name="filter_nearest">Nearest</string>
     <string name="btn_reprocess">Re-process with different settings</string>
-    <string name="reprocess_sheet_title">Re-process Original Image</string>
+    <string name="reprocess_sheet_title">Re-process Original Photo</string>
     <string name="reprocess_sheet_subtitle">Runs on the original %1$d × %2$d photo while keeping your saved result.</string>
-    <string name="reprocess_start_btn">Re-process Now</string>
+    <string name="reprocess_start_btn">Enhance Now</string>
     <string name="btn_share">Share</string>
     <string name="btn_open_gallery">Open in Gallery</string>
     <string name="backend_ran_label">Backend: %1$s</string>
-    <string name="fallback_notice">Vulkan was unavailable or failed mid-run; completed automatically on CPU.</string>
+    <string name="fallback_notice">Vulkan was unavailable or failed verification; completed automatically on CPU.</string>
     <string name="fallback_chain_used">Completed after automatic fallback: %1$s</string>
     <string name="share_chooser_title">Share Enhanced Image</string>
     <string name="error_no_gallery_app">No gallery viewer app found on this device.</string>
@@ -142,23 +196,24 @@
     <!-- About / Info Screen -->
     <string name="about_content_desc">About Enhancer</string>
     <string name="about_title">About Enhancer</string>
-    <string name="about_description" formatted="false">100% offline on-device AI image upscaler for Android powered by Real-ESRGAN, ncnn, and Vulkan GPU compute.</string>
-    <string name="about_whats_new_title">What\'s New in 2.0</string>
-    <string name="about_whats_new_1">True full-resolution tiled deep-zoom viewer (up to 4× past 1:1) with bicubic Original comparison</string>
-    <string name="about_whats_new_2">Max Quality mode with full-res supersampling Lanczos3 &amp; 32 px feathered tile blending</string>
-    <string name="about_whats_new_3">Optional TTA (x8 mode) &amp; halo-clamped adaptive Sharpness control</string>
-    <string name="about_whats_new_4">Full-chroma 4:4:4 JPEG (90–100, default 98) &amp; one-tap Re-process with different settings</string>
+    <string name="about_description" formatted="false">100% offline on-device AI photo enhancement &amp; super-resolution studio for Android powered by Real-ESRGAN, CodeFormer, SCRFD, Light AI, ncnn, and Vulkan GPU compute.</string>
+    <string name="about_whats_new_title">What\'s New in 3.0</string>
+    <string name="about_whats_new_1">7 Studio AI Modes: Prime, Gentle, Balanced, Strong, Ultra (with Intensity &amp; Size of Changes), Digital Art, and Old Photo</string>
+    <string name="about_whats_new_2">Enhance Faces (Photo 2.0): 5-point SCRFD landmark alignment + CodeFormer 512×512 eye, lash &amp; skin restoration with B&amp;W/sepia preservation</string>
+    <string name="about_whats_new_3">Light AI (Smart HDR): halo-free Guided Filter shadow recovery, highlight roll-off, adaptive white balance &amp; natural vibrance</string>
+    <string name="about_whats_new_4">Anti-gray Vulkan tile integrity verifier, universal multi-ABI APK (arm64-v8a / armeabi-v7a / x86_64, Android 7.0+), and 300 DPI print exports</string>
     <string name="about_oss_title">Open-source credits</string>
-    <string name="oss_realesrgan">Real-ESRGAN — BSD 3-Clause License</string>
-    <string name="oss_ncnn">ncnn — BSD 3-Clause License</string>
+    <string name="oss_realesrgan">Real-ESRGAN &amp; LSDIR — BSD 3-Clause License</string>
+    <string name="oss_codeformer">CodeFormer &amp; InsightFace SCRFD — S-Lab / MIT License</string>
+    <string name="oss_ncnn">Tencent ncnn (20261020) — BSD 3-Clause License</string>
     <string name="oss_stb">stb (stb_image / stb_image_write) — Public Domain / MIT License</string>
 
     <!-- Foreground Service Notification -->
-    <string name="notif_channel_name">Enhancer Upscaling Progress</string>
-    <string name="notif_channel_desc">Shows live offline AI image upscaling progress</string>
+    <string name="notif_channel_name">Enhancer AI Progress</string>
+    <string name="notif_channel_desc">Shows live offline AI photo enhancement progress</string>
     <string name="notif_running_title">Enhancing %1$d of %2$d (%3$d%%)</string>
     <string name="notif_running_text">%1$s • %2$s</string>
-    <string name="notif_thermal_title">Upscaling Paused (Device Hot)</string>
+    <string name="notif_thermal_title">Enhancement Paused (Device Hot)</string>
     <string name="notif_thermal_text">Waiting for device temperature to drop before continuing</string>
     <string name="notif_action_cancel">Cancel</string>
 
@@ -166,10 +221,10 @@
     <string name="diag_section_title">Diagnostics</string>
     <string name="diag_hardware_label">Hardware &amp; Vulkan Runtime</string>
     <string name="diag_ram_line">System RAM: %1$d MB free / %2$d MB total</string>
-    <string name="diag_safe_mode_status">Safe Mode: %1$s</string>
-    <string name="diag_state_on">ON (CPU + tile 64)</string>
-    <string name="diag_state_off">OFF</string>
-    <string name="diag_self_test_desc" formatted="false">Runs a synthetic 256×256 test image through realesrgan-x4plus once on Vulkan and once on CPU (tile = 64, no Max Quality, no TTA).</string>
+    <string name="diag_safe_mode_status">Compute Mode: %1$s</string>
+    <string name="diag_state_on">CPU Precision</string>
+    <string name="diag_state_off">Auto GPU (Vulkan + Fallback)</string>
+    <string name="diag_self_test_desc" formatted="false">Runs a synthetic 256×256 test image through realesrgan-x4plus once on Vulkan and once on CPU (tile = 64).</string>
     <string name="btn_run_self_test">Run self-test</string>
     <string name="self_test_running">Running Vulkan &amp; CPU self-test…</string>
     <string name="self_test_busy_queue">Wait for the active queue to finish before running self-test.</string>
@@ -178,10 +233,10 @@
     <string name="self_test_pass">PASS</string>
     <string name="self_test_fail">FAIL</string>
     <string name="diag_fp16_active_line">Active Precision: %1$s (%2$s)</string>
-    <string name="diag_fp16_mode_fp32">FP32 (FP16 disabled)</string>
-    <string name="diag_fp16_mode_fp16">FP16 storage enabled</string>
+    <string name="diag_fp16_mode_fp32">FP32 storage (FP16 disabled)</string>
+    <string name="diag_fp16_mode_fp16">FP16 storage + FP32 accum</string>
     <string name="diag_fp16_source_user">manual override</string>
-    <string name="diag_fp16_source_auto">hardware auto-default</string>
+    <string name="diag_fp16_source_auto">calibrated default</string>
     <string name="diag_seam_test_title">Tile Seam &amp; Smoothness Test (700×500)</string>
     <string name="diag_seam_test_desc" formatted="false">Generates a 700×500 smooth studio wall + gradient + glossy floor scene and tests Vulkan &amp; CPU × fp16 ON/OFF × Max Quality ON/OFF × tiles 128/200/256 (FAIL if smooth boundary jump exceeds baseline by &gt; 2 gray levels).</string>
     <string name="btn_seam_test">Seam test</string>
@@ -198,7 +253,7 @@
     <string name="err_mediastore_create">Could not create output file in Pictures/Enhancer.</string>
     <string name="err_oom">Out of memory during native upscaling. Try smaller target or tile size.</string>
     <string name="err_oom_with_detail">Out of memory in native allocation (%1$s).</string>
-    <string name="err_asset_load">Failed to load Real-ESRGAN model from app assets.</string>
+    <string name="err_asset_load">Failed to load neural model from app assets.</string>
     <string name="err_asset_load_detail">Failed to access app assets (%1$s).</string>
     <string name="err_bitmap_lock">Failed to lock source Bitmap pixels.</string>
     <string name="err_bitmap_lock_detail">Failed to lock source Bitmap pixels (%1$s).</string>

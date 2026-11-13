@@ -25,6 +25,33 @@ enum class UpscaleModel(
         labelRes = R.string.model_photo,
         descriptionRes = R.string.model_photo_desc
     ),
+    GENERAL_X4_V3(
+        paramAssetPath = "models/realesr-general-x4v3.param",
+        binAssetPath = "models/realesr-general-x4v3.bin",
+        scale = 4,
+        fileSlug = "general-v3",
+        approxWeightsMb = 3,
+        labelRes = R.string.model_general_v3,
+        descriptionRes = R.string.model_general_v3_desc
+    ),
+    GENERAL_WDN_X4_V3(
+        paramAssetPath = "models/realesr-general-wdn-x4v3.param",
+        binAssetPath = "models/realesr-general-wdn-x4v3.bin",
+        scale = 4,
+        fileSlug = "general-wdn",
+        approxWeightsMb = 3,
+        labelRes = R.string.model_general_wdn_v3,
+        descriptionRes = R.string.model_general_wdn_v3_desc
+    ),
+    LSDIR_COMPACT_X4(
+        paramAssetPath = "models/lsdir-compact-x4.param",
+        binAssetPath = "models/lsdir-compact-x4.bin",
+        scale = 4,
+        fileSlug = "lsdir-x4",
+        approxWeightsMb = 2,
+        labelRes = R.string.model_lsdir_x4,
+        descriptionRes = R.string.model_lsdir_x4_desc
+    ),
     ANIME_X4(
         paramAssetPath = "models/realesrgan-x4plus-anime.param",
         binAssetPath = "models/realesrgan-x4plus-anime.bin",
@@ -38,7 +65,7 @@ enum class UpscaleModel(
         paramAssetPath = "models/realesr-animevideov3-x2.param",
         binAssetPath = "models/realesr-animevideov3-x2.bin",
         scale = 2,
-        fileSlug = "animevideov3-x2",
+        fileSlug = "compact-x2",
         approxWeightsMb = 2,
         labelRes = R.string.model_fast_x2,
         descriptionRes = R.string.model_fast_x2_desc
@@ -47,7 +74,7 @@ enum class UpscaleModel(
         paramAssetPath = "models/realesr-animevideov3-x3.param",
         binAssetPath = "models/realesr-animevideov3-x3.bin",
         scale = 3,
-        fileSlug = "animevideov3-x3",
+        fileSlug = "compact-x3",
         approxWeightsMb = 2,
         labelRes = R.string.model_fast_x3,
         descriptionRes = R.string.model_fast_x3_desc
@@ -56,20 +83,136 @@ enum class UpscaleModel(
         paramAssetPath = "models/realesr-animevideov3-x4.param",
         binAssetPath = "models/realesr-animevideov3-x4.bin",
         scale = 4,
-        fileSlug = "animevideov3-x4",
+        fileSlug = "compact-x4",
         approxWeightsMb = 2,
         labelRes = R.string.model_fast_x4,
         descriptionRes = R.string.model_fast_x4_desc
     );
 }
 
+/**
+ * Let's Enhance (letsenhance.io) 7 Studio AI Enhancement Modes.
+ * Selecting a mode applies optimal defaults while leaving every sub-control 100% unlocked.
+ */
+enum class EnhanceModePreset(
+    val nativeCode: Int,
+    val fileSlug: String,
+    @StringRes val labelRes: Int,
+    @StringRes val descriptionRes: Int,
+    val defaultModel: UpscaleModel,
+    val defaultFaces: Boolean,
+    val defaultFaceStrength: Int,
+    val defaultLightAi: Boolean,
+    val defaultLightAiStrength: Int,
+    val defaultDenoise: Int,
+    val defaultSharpness: Int,
+    val defaultUltraIntensity: Int = 65,
+    val defaultUltraSize: Int = 45
+) {
+    PRIME(
+        nativeCode = 0,
+        fileSlug = "prime",
+        labelRes = R.string.mode_prime,
+        descriptionRes = R.string.mode_prime_desc,
+        defaultModel = UpscaleModel.PHOTO_X4,
+        defaultFaces = true,
+        defaultFaceStrength = 68,
+        defaultLightAi = false,
+        defaultLightAiStrength = 40,
+        defaultDenoise = 10,
+        defaultSharpness = 8
+    ),
+    GENTLE(
+        nativeCode = 1,
+        fileSlug = "gentle",
+        labelRes = R.string.mode_gentle,
+        descriptionRes = R.string.mode_gentle_desc,
+        defaultModel = UpscaleModel.LSDIR_COMPACT_X4,
+        defaultFaces = false,
+        defaultFaceStrength = 60,
+        defaultLightAi = false,
+        defaultLightAiStrength = 35,
+        defaultDenoise = 0,
+        defaultSharpness = 5
+    ),
+    BALANCED(
+        nativeCode = 2,
+        fileSlug = "balanced",
+        labelRes = R.string.mode_balanced,
+        descriptionRes = R.string.mode_balanced_desc,
+        defaultModel = UpscaleModel.GENERAL_X4_V3,
+        defaultFaces = true,
+        defaultFaceStrength = 70,
+        defaultLightAi = true,
+        defaultLightAiStrength = 45,
+        defaultDenoise = 18,
+        defaultSharpness = 12
+    ),
+    STRONG(
+        nativeCode = 3,
+        fileSlug = "strong",
+        labelRes = R.string.mode_strong,
+        descriptionRes = R.string.mode_strong_desc,
+        defaultModel = UpscaleModel.GENERAL_WDN_X4_V3,
+        defaultFaces = true,
+        defaultFaceStrength = 80,
+        defaultLightAi = true,
+        defaultLightAiStrength = 60,
+        defaultDenoise = 60,
+        defaultSharpness = 18
+    ),
+    ULTRA(
+        nativeCode = 4,
+        fileSlug = "ultra",
+        labelRes = R.string.mode_ultra,
+        descriptionRes = R.string.mode_ultra_desc,
+        defaultModel = UpscaleModel.PHOTO_X4,
+        defaultFaces = true,
+        defaultFaceStrength = 75,
+        defaultLightAi = true,
+        defaultLightAiStrength = 50,
+        defaultDenoise = 15,
+        defaultSharpness = 20,
+        defaultUltraIntensity = 65,
+        defaultUltraSize = 45
+    ),
+    DIGITAL_ART(
+        nativeCode = 5,
+        fileSlug = "digital-art",
+        labelRes = R.string.mode_digital_art,
+        descriptionRes = R.string.mode_digital_art_desc,
+        defaultModel = UpscaleModel.ANIME_X4,
+        defaultFaces = false,
+        defaultFaceStrength = 60,
+        defaultLightAi = false,
+        defaultLightAiStrength = 35,
+        defaultDenoise = 12,
+        defaultSharpness = 14
+    ),
+    OLD_PHOTO(
+        nativeCode = 6,
+        fileSlug = "old-photo",
+        labelRes = R.string.mode_old_photo,
+        descriptionRes = R.string.mode_old_photo_desc,
+        defaultModel = UpscaleModel.PHOTO_X4,
+        defaultFaces = true,
+        defaultFaceStrength = 82,
+        defaultLightAi = true,
+        defaultLightAiStrength = 40,
+        defaultDenoise = 35,
+        defaultSharpness = 10
+    );
+}
+
 enum class TargetPreset(val targetLongSide: Int) {
     NATIVE(0),
+    QHD_2K(2560),
     UHD_4K(3840),
     UHD_8K(7680);
 
     fun fileSlug(modelScale: Int): String = when (this) {
         NATIVE -> "x$modelScale"
+        QHD_2K -> "2K"
         UHD_4K -> "4K"
         UHD_8K -> "8K"
     }
@@ -102,14 +245,24 @@ enum class AppLanguageMode(val tag: String) {
 }
 
 data class EnhancerSettings(
-    val model: UpscaleModel = UpscaleModel.PHOTO_X4,
+    val enhanceMode: EnhanceModePreset = EnhanceModePreset.BALANCED,
+    val model: UpscaleModel = EnhanceModePreset.BALANCED.defaultModel,
     val target: TargetPreset = TargetPreset.UHD_4K,
+    val enhanceFaces: Boolean = EnhanceModePreset.BALANCED.defaultFaces,
+    val faceStrength: Int = EnhanceModePreset.BALANCED.defaultFaceStrength, // 0..100
+    val lightAi: Boolean = EnhanceModePreset.BALANCED.defaultLightAi,
+    val lightAiStrength: Int = EnhanceModePreset.BALANCED.defaultLightAiStrength, // 0..100
+    val denoiseStrength: Int = EnhanceModePreset.BALANCED.defaultDenoise, // 0..100
+    val ultraIntensity: Int = 65, // 0..100 (Ultra mode)
+    val ultraSize: Int = 45, // 0..100 (Ultra mode "Size of changes")
     val maxQuality: Boolean = false,
     val ttaX8: Boolean = false,
-    val safeMode: Boolean = false, // Forces CPU + tile 64 + no Max quality + no TTA
-    val sharpness: Int = 0, // 0..100 (0 = off)
+    val safeMode: Boolean = false, // Legacy flag; UI uses unlocked forceCpu + applyLowRamPreset()
+    val forceCpu: Boolean = false, // True = CPU Precision backend, False = Auto GPU (Vulkan + fallback)
+    val sharpness: Int = EnhanceModePreset.BALANCED.defaultSharpness, // 0..100 (0 = off)
     val format: OutputFormat = OutputFormat.JPEG,
     val jpegQuality: Int = 98, // 90..100, always 4:4:4 full chroma
+    val dpi: Int = 300, // Print-ready 300 DPI metadata
     val tileSize: TileSizeOption = TileSizeOption.AUTO,
     val disableFp16: Boolean = false,
     val languageMode: AppLanguageMode = AppLanguageMode.SYSTEM
@@ -122,6 +275,30 @@ data class EnhancerSettings(
 
     val effectiveTileSize: TileSizeOption
         get() = if (safeMode) TileSizeOption.TILE_64 else tileSize
+
+    val usesCpuOnly: Boolean
+        get() = safeMode || forceCpu
+
+    fun withModePreset(preset: EnhanceModePreset): EnhancerSettings = copy(
+        enhanceMode = preset,
+        model = preset.defaultModel,
+        enhanceFaces = preset.defaultFaces,
+        faceStrength = preset.defaultFaceStrength,
+        lightAi = preset.defaultLightAi,
+        lightAiStrength = preset.defaultLightAiStrength,
+        denoiseStrength = preset.defaultDenoise,
+        sharpness = preset.defaultSharpness,
+        ultraIntensity = preset.defaultUltraIntensity,
+        ultraSize = preset.defaultUltraSize
+    )
+
+    fun withLowRamPreset(): EnhancerSettings = copy(
+        forceCpu = true,
+        safeMode = false,
+        tileSize = TileSizeOption.TILE_64,
+        maxQuality = false,
+        ttaX8 = false
+    )
 }
 
 data class ResolutionPlan(
@@ -312,6 +489,8 @@ data class QueueItem(
     val activeTileSize: Int = 200,
     val usedCpuFallback: Boolean = false,
     val fallbackSummary: String = "",
+    val facesDetected: Int = 0,
+    val facesRestored: Int = 0,
     val outputUri: Uri? = null,
     val outputFileName: String = "",
     val outputWidth: Int = 0,

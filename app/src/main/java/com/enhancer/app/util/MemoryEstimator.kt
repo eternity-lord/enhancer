@@ -109,10 +109,18 @@ object MemoryEstimator {
             srcBitmapBytes + finalOutRgbBytes + bandBytes + modelWeightsBytes + tileWorkspaceBytes
         }
 
+        // Peak during Stage 3 (CodeFormer 512x512 sequential encoder->generator after SR session & work_rgb_buf are freed)
+        val faceStageOverheadBytes = if (settings.enhanceFaces && settings.faceStrength > 2) {
+            if (settings.usesCpuOnly) 220L * MB else 130L * MB
+        } else {
+            0L
+        }
+        val stageFace = finalOutRgbBytes + faceStageOverheadBytes
+
         // Peak during Stage B: both 4:4:4 JPEG and zlib PNG stream row-by-row from `final_rgb` with zero full-size copy
         val stageB = finalOutRgbBytes + (4L * MB)
 
-        val peakBytes = max(stageA, stageB)
+        val peakBytes = max(stageA, max(stageFace, stageB))
         val peakMb = ((peakBytes + MB - 1) / MB).toInt().coerceAtLeast(1)
 
         val usableAvailMb = (deviceMem.availMb - deviceMem.thresholdMb / 2).coerceAtLeast(128)

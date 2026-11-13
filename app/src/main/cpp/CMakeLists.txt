@@ -5,8 +5,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Point directly to prebuilt ncnn with Vulkan (arm64-v8a)
-set(ncnn_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ncnn-android-vulkan/arm64-v8a/lib/cmake/ncnn")
+# Resolve prebuilt ncnn with Vulkan per target ABI (arm64-v8a bundled + multi-ABI generated)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ncnn-android-vulkan/${ANDROID_ABI}/lib/cmake/ncnn/ncnnConfig.cmake")
+    set(ncnn_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ncnn-android-vulkan/${ANDROID_ABI}/lib/cmake/ncnn")
+elseif(DEFINED ENHANCER_GENERATED_NCNN_DIR AND EXISTS "${ENHANCER_GENERATED_NCNN_DIR}/${ANDROID_ABI}/lib/cmake/ncnn/ncnnConfig.cmake")
+    set(ncnn_DIR "${ENHANCER_GENERATED_NCNN_DIR}/${ANDROID_ABI}/lib/cmake/ncnn")
+else()
+    message(FATAL_ERROR "Prebuilt ncnn not found for ABI '${ANDROID_ABI}'. Run scripts/prepare_build_deps.sh first.")
+endif()
 find_package(ncnn REQUIRED)
 
 # Prebuilt ncnn exports -fno-exceptions in INTERFACE_COMPILE_OPTIONS.
@@ -21,6 +27,8 @@ endif()
 add_library(enhancer SHARED
     enhancer_jni.cpp
     upscaler.cpp
+    face_restorer.cpp
+    photo_enhance_ops.cpp
     tile_ops.cpp
     resizer.cpp
     image_io.cpp
