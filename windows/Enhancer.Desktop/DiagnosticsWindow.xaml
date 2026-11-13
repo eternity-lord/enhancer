@@ -1,0 +1,89 @@
+<Window x:Class="Enhancer.Desktop.DiagnosticsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Enhancer v3.0 — Engine Diagnostics, Self-Test &amp; Seam Verification"
+        Width="860"
+        Height="620"
+        WindowStartupLocation="CenterOwner"
+        Background="#090D16"
+        Foreground="#F8FAFC">
+    <Grid Margin="18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="Enhancer v3.0 Hardware &amp; Native Engine Verification"
+                       FontSize="18"
+                       FontWeight="Bold"
+                       Foreground="#F8FAFC" />
+            <TextBlock Text="Inspect Vulkan GPUs, Multi-Core CPU fallback readiness, FP16 tile calibration, Native Self-Test, and 24-case Seam Verification."
+                       FontSize="12.5"
+                       Foreground="#94A3B8"
+                       Margin="0,3,0,0" />
+        </StackPanel>
+
+        <WrapPanel Grid.Row="1" Margin="0,0,0,12">
+            <Button x:Name="BtnRefreshDiag"
+                    Content="Refresh Hardware Info"
+                    Style="{StaticResource SecondaryStudioButton}"
+                    Margin="0,0,8,6"
+                    Click="BtnRefreshDiag_Click" />
+            <Button x:Name="BtnRunSelfTest"
+                    Content="Run Native Self-Test (Vulkan + CPU)"
+                    Style="{StaticResource PrimaryStudioButton}"
+                    Margin="0,0,8,6"
+                    Click="BtnRunSelfTest_Click" />
+            <Button x:Name="BtnRunSeamTest"
+                    Content="Run Tile Seam-Test"
+                    Style="{StaticResource SecondaryStudioButton}"
+                    Margin="0,0,8,6"
+                    Click="BtnRunSeamTest_Click" />
+            <Button x:Name="BtnCancelSeam"
+                    Content="Stop Seam-Test"
+                    Style="{StaticResource SecondaryStudioButton}"
+                    Margin="0,0,8,6"
+                    IsEnabled="False"
+                    Click="BtnCancelSeam_Click" />
+            <Button x:Name="BtnCopyLog"
+                    Content="Copy Report"
+                    Style="{StaticResource SecondaryStudioButton}"
+                    Margin="0,0,0,6"
+                    Click="BtnCopyLog_Click" />
+        </WrapPanel>
+
+        <Border Grid.Row="2"
+                Background="#101726"
+                BorderBrush="#263449"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="12">
+            <TextBox x:Name="TxtReport"
+                     Background="Transparent"
+                     Foreground="#E2E8F0"
+                     BorderThickness="0"
+                     FontFamily="Consolas"
+                     FontSize="12"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto" />
+        </Border>
+
+        <DockPanel Grid.Row="3" Margin="0,12,0,0">
+            <TextBlock x:Name="TxtStatus"
+                       VerticalAlignment="Center"
+                       Foreground="#94A3B8"
+                       FontSize="12"
+                       Text="Ready." />
+            <Button Content="Close"
+                    HorizontalAlignment="Right"
+                    DockPanel.Dock="Right"
+                    Style="{StaticResource SecondaryStudioButton}"
+                    Width="96"
+                    Click="BtnClose_Click" />
+        </DockPanel>
+    </Grid>
+</Window>

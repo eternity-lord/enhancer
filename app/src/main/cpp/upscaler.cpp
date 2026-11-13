@@ -3,11 +3,14 @@
 #include "face_restorer.h"
 #include "image_io.h"
 #include "photo_enhance_ops.h"
+#include "platform_io.h"
 #include "resizer.h"
 #include "tile_ops.h"
 
+#ifdef __ANDROID__
 #include <android/asset_manager.h>
 #include <android/log.h>
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -20,7 +23,7 @@
 #include <string>
 #include <vector>
 
-// Prebuilt ncnn headers (arm64-v8a with Vulkan)
+// Prebuilt ncnn headers (with Vulkan / SimpleVK)
 #include "allocator.h"
 #include "cpu.h"
 #include "gpu.h"
@@ -28,9 +31,15 @@
 #include "net.h"
 
 #define LOG_TAG "EnhancerNative"
+#ifdef __ANDROID__
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
+#else
+#define LOGI(...) do { if (false) { std::fprintf(stderr, __VA_ARGS__); } } while (0)
+#define LOGW(...) do { std::fprintf(stderr, "[Enhancer WARN] "); std::fprintf(stderr, __VA_ARGS__); std::fprintf(stderr, "\n"); } while (0)
+#define LOGE(...) do { std::fprintf(stderr, "[Enhancer ERROR] "); std::fprintf(stderr, __VA_ARGS__); std::fprintf(stderr, "\n"); } while (0)
+#endif
 
 namespace enhancer {
 
@@ -122,17 +131,69 @@ bool ensure_vulkan_ready(int* out_create_rc = nullptr) noexcept {
     return ncnn::get_gpu_count() > 0 && ncnn::get_default_gpu_index() >= 0;
 }
 
-uint64_t query_asset_size_bytes(AAssetManager* mgr, const std::string& asset_path) noexcept {
-    if (!mgr || asset_path.empty()) {
+// Selects either an explicit Vulkan GPU index or the best available GPU
+// (preferring Discrete GPUs `type() == 0` with largest VRAM heap over integrated/virtual GPUs).
+int select_best_vulkan_gpu_index(int requested_gpu_index) noexcept {
+    const int gcount = ncnn::get_gpu_count();
+    if (gcount <= 0) {
+        return -1;
+    }
+    if (requested_gpu_index >= 0 && requested_gpu_index < gcount) {
+        return requested_gpu_index;
+    }
+
+    int best_idx = -1;
+    int best_rank = -1;
+    uint32_t best_budget = 0;
+
+    for (int i = 0; i < gcount; ++i) {
+        const ncnn::GpuInfo& info = ncnn::get_gpu_info(i);
+        // Rank: 3 = Discrete GPU (type 0), 2 = Integrated GPU (type 1), 1 = Virtual (type 2), 0 = CPU/Software (type 3)
+        int rank = 0;
+        switch (info.type()) {
+            case 0: rank = 3; break; // Discrete (NVIDIA RTX/GTX, AMD Radeon RX, Intel Arc)
+            case 1: rank = 2; break; // Integrated (Intel Iris/UHD, AMD Radeon iGPU)
+            case 2: rank = 1; break; // Virtual GPU
+            default: rank = 0; break; // Software / LLVMpipe / SwiftShader
+        }
+        ncnn::VulkanDevice* dev = ncnn::get_gpu_device(i);
+        const uint32_t budget = (dev && dev->is_valid()) ? dev->get_heap_budget() : 0u;
+        if (rank > best_rank || (rank == best_rank && budget > best_budget)) {
+            best_rank = rank;
+            best_budget = budget;
+            best_idx = i;
+        }
+    }
+
+    if (best_idx >= 0) {
+        return best_idx;
+    }
+    return ncnn::get_default_gpu_index();
+}
+
+uint64_t query_asset_size_bytes(
+    AAssetManager* mgr,
+    const std::string& models_base_dir,
+    const std::string& asset_path
+) noexcept {
+    if (asset_path.empty()) {
         return 0;
     }
-    AAsset* asset = AAssetManager_open(mgr, asset_path.c_str(), AASSET_MODE_UNKNOWN);
-    if (!asset) {
-        return 0;
+#ifdef __ANDROID__
+    if (mgr != nullptr) {
+        AAsset* asset = AAssetManager_open(mgr, asset_path.c_str(), AASSET_MODE_UNKNOWN);
+        if (!asset) {
+            return 0;
+        }
+        const off64_t len = AAsset_getLength64(asset);
+        AAsset_close(asset);
+        return (len > 0) ? static_cast<uint64_t>(len) : 0;
     }
-    const off64_t len = AAsset_getLength64(asset);
-    AAsset_close(asset);
-    return (len > 0) ? static_cast<uint64_t>(len) : 0;
+#else
+    (void)mgr;
+#endif
+    const std::string full = resolve_model_file_path(models_base_dir, asset_path);
+    return query_utf8_file_size(full);
 }
 
 // Queries `vkdev->get_heap_budget()` (MB) and caps initial tile size on low-VRAM GPUs.
@@ -213,7 +274,17 @@ public:
 
         const int big_cores = ncnn::get_big_cpu_count();
         const int all_cores = ncnn::get_cpu_count();
-        const int threads = std::clamp(big_cores > 0 ? big_cores : all_cores, 1, 8);
+#ifdef __ANDROID__
+        const int threads = (config.num_threads > 0)
+            ? std::clamp(config.num_threads, 1, 16)
+            : std::clamp(big_cores > 0 ? big_cores : all_cores, 1, 8);
+#else
+        (void)big_cores;
+        const int auto_desktop_threads = (all_cores > 2) ? (all_cores - 1) : std::max(1, all_cores);
+        const int threads = (config.num_threads > 0)
+            ? std::clamp(config.num_threads, 1, 64)
+            : std::clamp(auto_desktop_threads, 1, 32);
+#endif
 
         blob_cpu_allocator_.set_size_compare_ratio(0.0f);
         workspace_cpu_allocator_.set_size_compare_ratio(0.0f);
@@ -260,7 +331,7 @@ public:
                 return false;
             }
 
-            const int gpu_idx = ncnn::get_default_gpu_index();
+            const int gpu_idx = select_best_vulkan_gpu_index(config.gpu_index);
             vkdev_ = (gpu_idx >= 0) ? ncnn::get_gpu_device(gpu_idx) : nullptr;
             if (!vkdev_ || !vkdev_->is_valid()) {
                 out_backend_label = "Vulkan";
@@ -298,8 +369,21 @@ public:
             out_backend_label = "CPU (" + std::to_string(threads) + " threads)";
         }
 
-        const uint64_t param_bytes = query_asset_size_bytes(mgr, config.param_asset_path);
-        const int param_rc = net_.load_param(mgr, config.param_asset_path.c_str());
+        const uint64_t param_bytes = query_asset_size_bytes(mgr, config.models_base_dir, config.param_asset_path);
+        int param_rc = -1;
+#ifdef __ANDROID__
+        if (mgr != nullptr) {
+            param_rc = net_.load_param(mgr, config.param_asset_path.c_str());
+        }
+#endif
+        if (param_rc != 0) {
+            const std::string full_param = resolve_model_file_path(config.models_base_dir, config.param_asset_path);
+            std::FILE* fp = open_utf8_file(full_param, "rb");
+            if (fp != nullptr) {
+                param_rc = net_.load_param(fp);
+                std::fclose(fp);
+            }
+        }
         if (param_rc != 0) {
             out_failure = FailureInfo{
                 EnhancerStatus::ERR_NCNN_LOAD_PARAM,
@@ -314,8 +398,21 @@ public:
             return false;
         }
 
-        const uint64_t model_bytes = query_asset_size_bytes(mgr, config.bin_asset_path);
-        const int model_rc = net_.load_model(mgr, config.bin_asset_path.c_str());
+        const uint64_t model_bytes = query_asset_size_bytes(mgr, config.models_base_dir, config.bin_asset_path);
+        int model_rc = -1;
+#ifdef __ANDROID__
+        if (mgr != nullptr) {
+            model_rc = net_.load_model(mgr, config.bin_asset_path.c_str());
+        }
+#endif
+        if (model_rc != 0) {
+            const std::string full_bin = resolve_model_file_path(config.models_base_dir, config.bin_asset_path);
+            std::FILE* fp = open_utf8_file(full_bin, "rb");
+            if (fp != nullptr) {
+                model_rc = net_.load_model(fp);
+                std::fclose(fp);
+            }
+        }
         if (model_rc != 0) {
             out_failure = FailureInfo{
                 EnhancerStatus::ERR_NCNN_LOAD_MODEL,
@@ -1311,8 +1408,11 @@ UpscaleResult execute_pipeline_internal(
         ? std::max(kMinTileSize, config.requested_tile_size)
         : kDefaultTileSize;
 
-    if ((write_to_fd && !owned_output_fd.valid()) ||
-        !asset_manager || !src_rgba ||
+    const bool has_output_sink = owned_output_fd.valid() || !config.output_file_path.empty();
+    const bool has_model_source = (asset_manager != nullptr) || !config.models_base_dir.empty();
+
+    if ((write_to_fd && !has_output_sink) ||
+        !has_model_source || !src_rgba ||
         src_w <= 0 || src_h <= 0 ||
         static_cast<int64_t>(src_stride_bytes) < static_cast<int64_t>(src_w) * 4 ||
         (config.model_scale != 2 && config.model_scale != 3 && config.model_scale != 4)) {
@@ -1489,7 +1589,13 @@ UpscaleResult execute_pipeline_internal(
             }
         }
         if (want_faces) {
-            detected_faces = detect_faces_scrfd(asset_manager, work_rgb_buf.get(), cur_work_w, cur_work_h);
+            detected_faces = detect_faces_scrfd(
+                asset_manager,
+                work_rgb_buf.get(),
+                cur_work_w,
+                cur_work_h,
+                config.models_base_dir
+            );
             result.faces_detected = static_cast<int>(detected_faces.size());
         }
     }
@@ -2072,7 +2178,9 @@ UpscaleResult execute_pipeline_internal(
             [&](int done_faces, int total_faces) {
                 const int pct = 80 + (10 * done_faces) / std::max(1, total_faces);
                 report_progress(pct, backend_label);
-            }
+            },
+            config.models_base_dir,
+            config.gpu_index
         );
         if (cancel_flag.load(std::memory_order_relaxed)) {
             result.status = EnhancerStatus::CANCELLED;
@@ -2135,19 +2243,37 @@ UpscaleResult execute_pipeline_internal(
         std::string encode_err;
         EnhancerStatus encode_status = EnhancerStatus::OK;
         uint64_t encode_req_bytes = 0;
-        const bool write_ok = write_rgb_image_to_fd(
-            owned_output_fd.get(),
-            final_rgb.get(),
-            plan.final_w,
-            plan.final_h,
-            config.format,
-            config.jpeg_quality,
-            &encode_err,
-            &encode_status,
-            &encode_req_bytes,
-            config.dpi
-        );
-        const bool close_ok = owned_output_fd.close_now();
+        bool write_ok = false;
+        bool close_ok = true;
+
+        if (owned_output_fd.valid()) {
+            write_ok = write_rgb_image_to_fd(
+                owned_output_fd.get(),
+                final_rgb.get(),
+                plan.final_w,
+                plan.final_h,
+                config.format,
+                config.jpeg_quality,
+                &encode_err,
+                &encode_status,
+                &encode_req_bytes,
+                config.dpi
+            );
+            close_ok = owned_output_fd.close_now();
+        } else {
+            write_ok = write_rgb_image_to_path(
+                config.output_file_path,
+                final_rgb.get(),
+                plan.final_w,
+                plan.final_h,
+                config.format,
+                config.jpeg_quality,
+                &encode_err,
+                &encode_status,
+                &encode_req_bytes,
+                config.dpi
+            );
+        }
         final_rgb.reset();
 
         if (!write_ok || !close_ok) {
@@ -2191,10 +2317,35 @@ UpscaleResult execute_pipeline_internal(
 
 } // namespace
 
+std::vector<GpuDeviceDesc> enumerate_vulkan_gpus() {
+    std::vector<GpuDeviceDesc> out;
+    int create_rc = 0;
+    if (!ensure_vulkan_ready(&create_rc)) {
+        return out;
+    }
+    const int gcount = ncnn::get_gpu_count();
+    const int best_idx = select_best_vulkan_gpu_index(-1);
+    out.reserve(static_cast<size_t>(std::max(0, gcount)));
+    for (int i = 0; i < gcount; ++i) {
+        const ncnn::GpuInfo& info = ncnn::get_gpu_info(i);
+        ncnn::VulkanDevice* dev = ncnn::get_gpu_device(i);
+        const char* raw_name = info.device_name();
+        GpuDeviceDesc d;
+        d.index = i;
+        d.name = (raw_name && raw_name[0] != '\0') ? raw_name : ("GPU " + std::to_string(i));
+        d.vendor_id = info.vendor_id();
+        d.type = info.type();
+        d.heap_budget_mb = (dev && dev->is_valid()) ? dev->get_heap_budget() : 0u;
+        d.is_recommended = (i == best_idx);
+        out.push_back(d);
+    }
+    return out;
+}
+
 std::string query_vulkan_device_info() {
     int create_rc = 0;
     if (ensure_vulkan_ready(&create_rc)) {
-        const int def_idx = ncnn::get_default_gpu_index();
+        const int def_idx = select_best_vulkan_gpu_index(-1);
         if (def_idx >= 0) {
             const ncnn::GpuInfo& gpu = ncnn::get_gpu_info(def_idx);
             const char* name = gpu.device_name();
@@ -2218,7 +2369,10 @@ bool should_default_disable_fp16_sync() noexcept {
     return false;
 }
 
-Fp16CalibrationReport calibrate_vulkan_fp16_policy(AAssetManager* asset_manager) {
+Fp16CalibrationReport calibrate_vulkan_fp16_policy(
+    AAssetManager* asset_manager,
+    const std::string& models_base_dir
+) {
     std::lock_guard<std::mutex> run_lock(g_calib_run_mutex);
     {
         std::lock_guard<std::mutex> lock(g_fp16_calib_mutex);
@@ -2241,7 +2395,7 @@ Fp16CalibrationReport calibrate_vulkan_fp16_policy(AAssetManager* asset_manager)
         return report;
     }
 
-    const int def_idx = ncnn::get_default_gpu_index();
+    const int def_idx = select_best_vulkan_gpu_index(-1);
     if (def_idx < 0) {
         report.vulkan_available = false;
         report.recommend_disable_fp16 = false;
@@ -2261,7 +2415,7 @@ Fp16CalibrationReport calibrate_vulkan_fp16_policy(AAssetManager* asset_manager)
 
     // Run lightweight 2-tile calibration (96x96 vs 64x96 over identical smooth interior patch)
     // comparing Vulkan fp16 ON and Vulkan fp16 OFF against CPU FP32 reference.
-    if (asset_manager != nullptr) {
+    if (asset_manager != nullptr || !models_base_dir.empty()) {
         constexpr int kBigW = 96;
         constexpr int kBigH = 96;
         constexpr int kSmallW = 64;
@@ -2292,6 +2446,7 @@ Fp16CalibrationReport calibrate_vulkan_fp16_policy(AAssetManager* asset_manager)
         auto run_patch = [&](bool use_vk, bool disable_fp16, const uint8_t* rgb, int w, int h,
                              std::vector<float>& pr, std::vector<float>& pg, std::vector<float>& pb) -> bool {
             UpscaleConfig cfg;
+            cfg.models_base_dir = models_base_dir;
             cfg.param_asset_path = "models/realesrgan-x4plus.param";
             cfg.bin_asset_path = "models/realesrgan-x4plus.bin";
             cfg.model_scale = 4;
@@ -2441,7 +2596,7 @@ std::string query_vulkan_diagnostics_summary() {
     }
 
     if (vk_ok) {
-        const int def_idx = ncnn::get_default_gpu_index();
+        const int def_idx = select_best_vulkan_gpu_index(-1);
         ncnn::VulkanDevice* vkdev = (def_idx >= 0) ? ncnn::get_gpu_device(def_idx) : nullptr;
         const uint32_t vendor_id = (def_idx >= 0) ? ncnn::get_gpu_info(def_idx).vendor_id() : 0u;
         const char* name = (def_idx >= 0) ? ncnn::get_gpu_info(def_idx).device_name() : nullptr;
@@ -2451,6 +2606,7 @@ std::string query_vulkan_diagnostics_summary() {
             fp16_line = "FP16 storage + FP32 accum default: ON — " + dev_name + " [" + format_hex32(vendor_id) + "]";
         }
         return "Vulkan GPU: " + dev_name + " [" + format_hex32(vendor_id) + "]" +
+            " (gpu_count=" + std::to_string(ncnn::get_gpu_count()) + ")" +
             " | GPU Heap Budget: " + std::to_string(budget_mb) + " MB" +
             " | create_gpu_instance rc=" + std::to_string(create_rc) +
             " | CPU Cores: " + std::to_string(big_cores) + " big / " + std::to_string(total_cores) + " total\n" +
@@ -2476,7 +2632,10 @@ void shutdown_vulkan_runtime() noexcept {
     }
 }
 
-SelfTestReport run_native_self_test(AAssetManager* asset_manager) {
+SelfTestReport run_native_self_test(
+    AAssetManager* asset_manager,
+    const std::string& models_base_dir
+) {
     SelfTestReport report;
     constexpr int kWidth = 256;
     constexpr int kHeight = 256;
@@ -2520,6 +2679,7 @@ SelfTestReport run_native_self_test(AAssetManager* asset_manager) {
     auto run_single_backend = [&](bool test_vulkan) -> BackendSelfTestOutcome {
         BackendSelfTestOutcome out;
         UpscaleConfig cfg;
+        cfg.models_base_dir = models_base_dir;
         cfg.param_asset_path = "models/realesrgan-x4plus.param";
         cfg.bin_asset_path = "models/realesrgan-x4plus.bin";
         cfg.model_scale = 4;
@@ -2599,10 +2759,11 @@ SelfTestReport run_native_self_test(AAssetManager* asset_manager) {
 SeamTestReport run_native_seam_test(
     AAssetManager* asset_manager,
     const std::atomic<bool>& cancel_flag,
-    const SeamTestProgressCallback& progress_cb
+    const SeamTestProgressCallback& progress_cb,
+    const std::string& models_base_dir
 ) {
     SeamTestReport report;
-    report.fp16_calibration = calibrate_vulkan_fp16_policy(asset_manager);
+    report.fp16_calibration = calibrate_vulkan_fp16_policy(asset_manager, models_base_dir);
 
     constexpr int kInW = 700;
     constexpr int kInH = 500;
@@ -2740,6 +2901,7 @@ SeamTestReport run_native_seam_test(
             }
 
             UpscaleConfig cfg;
+            cfg.models_base_dir = models_base_dir;
             cfg.param_asset_path = "models/realesrgan-x4plus.param";
             cfg.bin_asset_path = "models/realesrgan-x4plus.bin";
             cfg.model_scale = kScale;

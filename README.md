@@ -1,4 +1,4 @@
-# Enhancer v2.0 (Version 2) — Offline Android AI Image Upscaler (4K / 8K)
+# Enhancer v3.0 Studio — Offline AI Image Upscaler, Face Restoration & Smart HDR (Windows x64 & Android)
 
 **Built by Mohammad Irani | ساخته شده توسط محمد ایرانی**
 
@@ -8,84 +8,63 @@
 
 ## English
 
-### What It Is
-**Enhancer (Version 2.0)** is a **100% offline** Android image upscaler (`arm64-v8a`, Android 8.0 / API 26+) powered by **Real-ESRGAN** running natively on-device through **ncnn + Vulkan** (with automatic fallback to multi-threaded ARM64 **CPU** when Vulkan is unavailable or encounters a runtime error).
+### Overview
+**Enhancer v3.0 Studio** is a **100% offline** AI image super-resolution, portrait face restoration, and Smart HDR enhancement suite for **Windows 10/11 (x64)** and **Android (8.0+)** — powered by a shared high-precision **C++17 + ncnn** native engine. Every neural weight is bundled offline; zero photos ever leave your device.
 
-Enhancer declares **no internet permission at all** (`android.permission.INTERNET` is absent and explicitly stripped at manifest merge time). Every photo stays strictly on your phone.
+### Windows v3.0 Highlights (`Enhancer.exe` + `enhancer-cli.exe`)
+- **Works on ALL Windows PCs — With OR Without a Graphics Card**:
+  - **Systems WITH a Graphics Card (NVIDIA, AMD, Intel)**: Hardware-accelerated **Vulkan GPU** compute (`SimpleVK` dynamic runtime loader), automatic **Discrete GPU** selection on dual-GPU laptops, GPU VRAM heap-budget auto-tiling, anti-gray output verification (`ERR_VULKAN_CORRUPTED`), and automatic `Vulkan FP16 ↔ Vulkan FP32 → CPU` fallback.
+  - **Systems WITHOUT a Graphics Card (CPU-Only PCs, Office Laptops, VMs)**: Zero dependency on `vulkan-1.dll` at load time — automatically runs optimized **Multi-Core x86-64 CPU inference** (`OpenMP` + runtime `AVX-512` / `AVX2` / `FMA` / `SSE` dispatch) with configurable thread count.
+- **7 Studio Enhancement Modes (100% Unlocked Inspector)**:
+  - `Prime`, `Gentle`, `Balanced`, `Strong`, `Ultra` (with **Ultra Detail Intensity** & **Size of Changes** multi-scale synthesis), `Digital Art`, and `Old Photo` — every slider and toggle stays unlocked so you can customize any preset freely.
+- **Portrait Face Restoration (`SCRFD-2.5G-KPS` + `CodeFormer 512×512`)**:
+  - Automatic 5-point landmark detection, Umeyama similarity alignment, sequential memory-safe `CodeFormer` neural restoration, Oklab skin-tone preservation, and seamless elliptical cosine feathering.
+- **Light AI (Smart HDR) & Pre-SR Artifact Cleanup**:
+  - Edge-preserving Guided Filter shadow/highlight recovery and adaptive chroma vibrance, plus pre-inference JPEG 8×8 deblocking & chroma denoise.
+- **8 Bundled Offline Neural SR Models & Up to 16K Output**:
+  - `General v3 x4`, `Real-ESRGAN Photo x4+`, `General WDN Heavy Denoise x4`, `LSDIR Compact Crisp x4`, `Digital Art / Anime x4+`, and `Fast Compact x2 / x3 / x4`.
+  - Output targets from `Native` (`2×`/`3×`/`4×`), `2K (2560 px)`, `4K UHD (3840 px)`, `8K UHD (7680 px)`, up to **`16K Print Master (15360 px)`** or any custom pixel size, with **300 DPI** (or 72/150/600 DPI) print metadata embedded in both **4:4:4 Full-Chroma JPEG** and **Lossless PNG**.
+- **Interactive Desktop Studio UI & Command-Line Tool**:
+  - Dark Studio interface with **Drag & Drop** (files & folders), **Batch Queue**, **Pan/Zoom (`Fit`, `100%`, `200%`, `400%`) Interactive Split Before/After Comparison**, **English & فارسی (RTL)** live toggle, **Hardware Diagnostics / Native Self-Test / Seam-Test**, plus **`enhancer-cli.exe`** for scripting and batch pipelines.
 
-### What's New in 2.0
-- **True Full-Resolution Tiled Deep-Zoom Viewer**:
-  - Streams visible tiles directly from the real saved 4K/8K output file via `BitmapRegionDecoder` (never scaling a downsampled preview and never decoding a full 8K `Bitmap` into Java heap).
-  - Backed by a 64 MB LRU tile cache with frame-safe recycling, `OutOfMemoryError` protection, smooth tile crossfading, focal pinch-zoom, double-tap zoom (`Fit` → `1:1` → `400%`), inertial pan fling, selectable **Nearest / Bilinear** pixel filtering, live zoom `%` + **`1:1`** HUD badge, and synced **Original** (Catmull-Rom bicubic) vs **Enhanced** split comparison.
-- **Max Quality Mode** *(toggle, off by default)* & **Seamless Float Feathered Tiling**:
-  - **Standard Mode** uses balanced grid splits (zero narrow runt edge tiles), uniform aligned tile tensor dimensions, **16 px reflection prepadding**, and **24 px (at 4×) 2D per-tile `float` feathered overlap blending** (`w_prev + w_curr == 1.0f`) streamed directly into the single `final_rgb` buffer.
-  - **Max Quality Mode** always runs Real-ESRGAN on the **full-resolution source** (never pre-downscales before inference), uses **32 px reflection tile prepadding** and **32 px (at 4×) 2D `float` feathered overlap blending**, and downscales oversized model outputs to the exact target via anti-aliased **streaming row-band Lanczos3** supersampling.
-- **Adreno / Mobile Vulkan Precision Calibration**:
-  - Disables Vulkan `Winograd F(4,3)` (`64×` 2D Vandermonde amplification across 69 RRDB blocks) while keeping `Winograd F(2,3)` + SGEMM compute, automatically calibrates Vulkan `fp16` vs CPU `fp32` at startup (defaulting `fp16` OFF on Qualcomm Adreno GPUs such as Adreno 660 while preserving manual override in Advanced settings), and uses fine perceptual `YQT` chroma quantization (`q_scale = 1` at `Q = 98`) for smooth `4:4:4` JPEG gradients without `8×8` micro-blocking.
-- **Optional TTA (`x8 Mode`)**:
-  - Runs inference on all 8 dihedral flip/rotate variants per tile, inverts each transform in float, and averages all 8 passes (~8× slower warning shown, cancelable anytime with accurate sub-pass progress).
-- **Optional Adaptive Sharpness Control (`0..100`)**:
-  - Light halo-clamped 5-tap Gaussian adaptive unsharp mask (radius ~1.0) applied per tile inside the padded float region before blending so tile borders remain completely seamless.
-- **Full-Chroma `4:4:4` JPEG (`90..100`, default `98`)**:
-  - Configurable JPEG quality slider (`90..100`, default `98`) encoding true **`4:4:4` full chroma** (`SOF0` `1×1` sampling on Y, Cb, Cr — zero `4:2:0` chroma subsampling across the entire `90..100` range), while keeping lossless **PNG**.
-- **Per-Image Re-Run ("Re-process with different settings")**:
-  - Re-run any finished result directly from the comparison screen with different model, target, Max Quality, TTA, sharpness, or format settings while keeping both the original image and your already-saved result.
-- **Version 2.0, Diagnostics, Self-Test & Seam Test**:
-  - Displays `Version 2.0` (`BuildConfig.VERSION_NAME`) in the header and includes a **Diagnostics** panel on the **About** screen with Vulkan heap-budget & FP16 policy inspection, structured native diagnostic logs, a one-tap **"Run self-test"** button (`256×256` synthetic image on Vulkan and CPU), and a **"Seam test"** button (`700×500` smooth studio wall + gradient + glossy floor matrix across Vulkan/CPU × `fp16` ON/OFF × Max Quality ON/OFF × tiles `128/200/256`, with **Copy results**).
-- **Ordered Automatic Fallback Chain & Safe Mode**:
-  - Single full-size output buffer (`final_rgb`) with streaming row-by-row `4:4:4` JPEG and zlib PNG encoders (zero duplicate full-size copies), GPU `get_heap_budget()` tile capping, per-tile Vulkan allocator clearing, and automatic step-by-step recovery (`halve tile down to 48 px` → `disable TTA` → `disable Max Quality` → `switch to CPU`), plus an explicit **Safe Mode** toggle (`CPU + tile 64 + no Max Quality + no TTA`).
+### Installing on Windows (10 / 11 x64)
+1. Download **`Enhancer-v3.0-Windows-x64-Setup.exe`** (one-click installer, no admin rights or prerequisites required — `.NET 8`, `VC++/OpenMP`, and all 20 neural model files are bundled) or **`Enhancer-v3.0-Windows-x64-Portable.zip`** from **Releases** or **GitHub Actions → Windows CI Build & Installer → Artifacts**.
+2. Launch **Enhancer v3.0 Studio**, drop any image or folder onto the window, select a Studio mode, and click **Enhance Selected**.
 
-### Core Features (Preserved from 1.0)
-- **5 Bundled Offline Models**:
-  - **Photo (`realesrgan-x4plus`, 4×)** — General photography and natural textures.
-  - **Anime / Illustration (`realesrgan-x4plus-anime`, 4×)** — Crisp line art, digital art, and anime.
-  - **Fast (`realesr-animevideov3-x2`, `-x3`, `-x4`)** — Compact models for fast 2×, 3×, or 4× upscaling.
-- **Flexible Targets (`Native`, `4K`, `8K`)** with aspect-ratio preservation and automatic tile-size halving down to **48 px** on OOM/Vulkan errors.
-- **Sequential Batch Queue, Foreground Service, `PARTIAL_WAKE_LOCK` & Thermal Safety** (`PowerManager` severe thermal auto-pause on Android 10+).
-- **Full English & Farsi (فارسی) RTL/LTR UI**.
+### Command-Line Usage (`enhancer-cli.exe`)
+```powershell
+# Inspect detected Vulkan GPUs, CPU threads, and RAM:
+.\enhancer-cli.exe --diag
 
-### How to Get the APK from GitHub Actions (No Android Studio Needed)
-1. Open the repository on GitHub and go to the **Actions** tab.
-2. Select the **Android CI Build** workflow and click the latest green workflow run.
-3. Scroll down to **Artifacts** and download **`Enhancer-v2.0-debug`** (unzip it to get **`Enhancer-v2.0-debug.apk`**, then install on any `arm64-v8a` Android 8.0+ phone).
+# Run native Vulkan + Multi-Core CPU verification:
+.\enhancer-cli.exe --self-test
 
-### Honest Limits
-- **Plausible synthesis, not optical recovery**: Real-ESRGAN synthesizes plausible sharp edges and textures learned from training data rather than recovering true lost optical detail. Do **not** rely on AI upscaling for forensic evidence, medical imaging, distant faces, or unreadable text/plates.
-- **Speed & heat in Max Quality / TTA x8 / 8K**: `Max Quality` on high-megapixel photos and especially `TTA (x8 Mode)` (~8× more passes) take several minutes per image and generate heat. Thermal safety automatically pauses the queue between items if the phone gets severely hot.
-- **Memory & storage**: Lossless `PNG` at 8K is slow and creates 40–90+ MB files; `JPEG 98% (4:4:4)` is strongly recommended.
+# Enhance a portrait to 4K 300 DPI in Ultra mode:
+.\enhancer-cli.exe -i portrait.jpg -o portrait_4k.jpg --mode ultra --target 4k --dpi 300
+
+# Force Multi-Core CPU mode on a PC without a GPU:
+.\enhancer-cli.exe -i photo.jpg -o photo_enhanced.jpg --cpu --threads 8
+```
+
+### Android v3.0 Highlights (`Enhancer-v3.0-debug.apk`)
+- Universal offline Android package (`arm64-v8a`, `armeabi-v7a`, `x86_64`, Android 8.0+) with zero internet permission, featuring all 7 Studio modes, `SCRFD + CodeFormer` face restoration, `Light AI`, 8 SR models, full-resolution tiled deep-zoom comparison viewer, 4:4:4 JPEG + PNG 300 DPI export, foreground batch queue with thermal protection, and bilingual `English` / `فارسی` UI.
 
 ---
 
 ## فارسی
 
-### معرفی برنامه (نسخه ۲.۰)
-**Enhancer نسخه ۲.۰** (**ساخته شده توسط محمد ایرانی**) یک برنامه اندرویدی **۱۰۰٪ آفلاین** برای ارتقای کیفیت و وضوح تصاویر تا **4K** و **8K** است که با مدل‌های هوش مصنوعی **Real-ESRGAN** و موتور بومی **ncnn + Vulkan** مستقیماً روی پردازنده گرافیکی گوشی (و در صورت نیاز به‌طور خودکار روی **CPU**) اجرا می‌شود. این برنامه **هیچ مجوز اینترنتی ندارد** و تمام پردازش‌ها کاملاً روی خود گوشی انجام می‌شوند.
+### معرفی Enhancer v3.0 Studio (نسخه ویندوز و اندروید)
+**Enhancer نسخه ۳.۰** (**ساخته شده توسط محمد ایرانی**) یک استودیوی کامل و **۱۰۰٪ آفلاین** برای افزایش کیفیت و رزولوشن تصاویر، بازسازی تخصصی چهره با هوش مصنوعی و اصلاح نور هوشمند برای **ویندوز ۱۰ و ۱۱ (۶۴ بیتی)** و **اندروید** است. تمام شبکه‌های عصبی داخل برنامه قرار دارند و هیچ تصویری به اینترنت ارسال نمی‌شود.
 
-### قابلیت‌های جدید در نسخه ۲.۰ (What's New in 2.0)
-- **نمایشگر بزرگ‌نمایی عمیق با وضوح واقعی (Full-Res Tiled Deep Zoom)**:
-  - نمایش مستقیم فایل واقعی خروجی (4K/8K) به‌صورت کاشی‌بندی‌شده با `BitmapRegionDecoder` و حافظه کش هوشمند ۶۴ مگابایتی بدون بارگذاری کل تصویر 8K در رم جاوا.
-  - پشتیبانی از بزرگ‌نمایی دو انگشتی، دوبار لمس (`جای‌گیری` ← `1:1` ← `400%`)، حرکت روان با شتاب (Fling)، انتخاب فیلتر **Bilinear / Nearest**، نمایشگر درصد زوم و نشانگر **`1:1`**، و مقایسه هم‌زمان با تصویر **اصلی (Original)** بزرگ‌شده با الگوریتم **Bicubic**.
-- **حالت حداکثر کیفیت (Max Quality)**:
-  - اجرای مدل روی وضوح کامل تصویر اصلی (بدون کوچک‌سازی اولیه)، ترکیب نرم **۳۲ پیکسلی** مرز کاشی‌ها بدون هیچ خط درز، و تغییر اندازه جریانی با فیلتر دقیق **Lanczos3**.
-- **حالت اختیاری TTA (`x8 Mode`)**:
-  - اجرای ۸ حالت چرخش و قرینه برای هر کاشی و میانگین‌گیری دقیق برای لبه‌های تمیزتر (همراه با هشدار زمان ~۸ برابر و قابلیت لغو در هر لحظه).
-- **کنترل شارپنس تطبیقی (`0..100`)**:
-  - فیلتر شارپنس ملایم و بدون هاله (Halo-clamped Unsharp Mask) روی هر کاشی پیش از ترکیب نهایی.
-- **خروجی JPEG با رنگ کامل `4:4:4` (کیفیت ۹۰ تا ۱۰۰، پیش‌فرض ۹۸)**:
-  - بدون فشرده‌سازی رنگی `4:2:0`، به همراه حفظ گزینه **PNG** بدون افت.
-- **پردازش مجدد با تنظیمات متفاوت (Re-process with different settings)**:
-  - امکان اجرای دوباره همان تصویر اصلی با مدل، وضوح، حداکثر کیفیت، TTA یا شارپنس جدید مستقیماً از صفحه مقایسه بدون نیاز به انتخاب مجدد عکس و با حفظ فایل قبلی.
-- **بخش درباره برنامه (About)**:
-  - نمایش `نسخه 2.0` از `BuildConfig`، نام سازنده (**ساخته شده توسط محمد ایرانی**) و فهرست مجوز کتابخانه‌های متن‌باز.
-
-### دریافت فایل نصبی (APK) از GitHub Actions
-۱. در صفحه مخزن GitHub وارد بخش **Actions** و گردش‌کار **Android CI Build** شوید.
-۲. آخرین اجرای سبز رنگ را باز کرده و از بخش **Artifacts** فایل **`Enhancer-v2.0-debug`** را دانلود کنید (`Enhancer-v2.0-debug.apk`).
-
----
-
-## Credits & Open-Source Licenses
-- **Author**: Built by Mohammad Irani (ساخته شده توسط محمد ایرانی)
-- **[Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN)** — BSD 3-Clause License.
-- **[ncnn](https://github.com/Tencent/ncnn)** — BSD 3-Clause License.
-- **[stb (`stb_image.h`, `stb_image_write.h`)](https://github.com/nothings/stb)** — Public Domain (Unlicense) / MIT License.
+### ویژگی‌های کلیدی نسخه ویندوز (`Enhancer.exe` و `enhancer-cli.exe`)
+- **اجرای کامل روی تمام رایانه‌ها — با کارت گرافیک و بدون کارت گرافیک**:
+  - **رایانه‌های دارای کارت گرافیک (NVIDIA، AMD، Intel)**: شتاب‌دهی سخت‌افزاری با **Vulkan GPU**، انتخاب خودکار کارت گرافیک مجزا (Discrete GPU) در لپ‌تاپ‌های دوگرافیکه، تنظیم هوشمند اندازه کاشی بر اساس حافظه گرافیک، و سیستم ضد تصویر خاکستری.
+  - **رایانه‌های بدون کارت گرافیک (فقط CPU)**: بدون هیچ وابستگی اجباری به درایور گرافیک یا `vulkan-1.dll`؛ اجرای خودکار و بهینه روی **پردازنده چند‌هسته‌ای (Multi-Core CPU)** با دستورات برداری `AVX2 / AVX-512 / OpenMP` و امکان تنظیم تعداد هسته‌ها.
+- **۷ حالت هوش مصنوعی استودیویی بدون هیچ محدودیت قفل‌شده**:
+  - شامل حالت‌های `Prime`، `Gentle`، `Balanced`، `Strong`، `Ultra` (مجهز به اسلایدرهای **شدت جزئیات** و **اندازه تغییرات**)، `Digital Art` و `Old Photo`.
+- **بازسازی تخصصی چهره (`SCRFD + CodeFormer 512×512`) و نورپردازی هوشمند (`Light AI`)**:
+  - تشخیص دقیق اجزای چهره، بازسازی تارترین چهره‌ها با حفظ رنگ طبیعی پوست در فضای رنگی Oklab، و بازیابی هوشمند سایه‌ها و هایلایت‌ها (Smart HDR).
+- **۸ مدل شبکه عصبی آفلاین و خروجی تا رزولوشن 16K با استاندارد چاپ 300 DPI**:
+  - خروجی با کیفیت‌های `Native`، `2K`، `4K`، `8K` و **`16K (15360 px)`** در فرمت‌های **JPEG 4:4:4** بدون افت رنگ و **PNG** بدون افت کیفیت، همراه با متادیتای واقعی **300 DPI** مخصوص چاپ حرفه‌ای.
+- **رابط کاربری مدرن دو زبانه (فارسی راست‌به‌چپ و انگلیسی)**:
+  - پشتیبانی از کشیدن و رها کردن (Drag & Drop) عکس و پوشه، صف پردازش دسته‌ای (Batch Queue)، مقایسه تعاملی **قبل / بعد** با بزرگ‌نمایی تا `800%`، و ابزار خط فرمان `enhancer-cli.exe`.

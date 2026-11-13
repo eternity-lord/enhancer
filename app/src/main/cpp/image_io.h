@@ -54,6 +54,30 @@ bool write_rgb_image_to_fd(
     int dpi = 300
 );
 
+// Stream-encodes packed RGB888 pixels to 4:4:4 JPEG or lossless PNG directly into a UTF-8 file path
+// (using UTF-16 `_wfopen` on Windows so Persian/Unicode folders and filenames work natively).
+bool write_rgb_image_to_path(
+    const std::string& utf8_path,
+    const uint8_t* rgb_data,
+    int width,
+    int height,
+    ImageFormat format,
+    int jpeg_quality,
+    std::string* out_error,
+    EnhancerStatus* out_status = nullptr,
+    uint64_t* out_requested_bytes = nullptr,
+    int dpi = 300
+);
+
+// Decodes an image file (JPEG, PNG, BMP, TGA, PSD, HDR, PNM) from a UTF-8 file path into RGBA8888.
+bool decode_image_file_utf8_to_rgba(
+    const std::string& utf8_path,
+    NativeByteBuffer& out_rgba,
+    int& out_width,
+    int& out_height,
+    std::string* out_error = nullptr
+);
+
 } // namespace enhancer
 
 #endif // ENHANCER_IMAGE_IO_H

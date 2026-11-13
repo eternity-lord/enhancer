@@ -1,0 +1,133 @@
+name: Windows CI Build & Installer
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    name: Build Enhancer v3.0 Windows x64 (Vulkan GPU + Multi-Core CPU + Setup.exe)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Cache Windows ncnn SDK & CodeFormer neural weights
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/enhancer-windows-deps
+          key: enhancer-win-deps-v3-ncnn20261020-cf-cfe0fe2d
+
+      - name: Prepare Windows ncnn VS2022 SDK & all 20 neural model files
+        shell: pwsh
+        run: ./scripts/prepare_windows_deps.ps1
+
+      - name: Set up .NET 8.0 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build Native C++17 Engine (enhancer_engine.dll & enhancer-cli.exe)
+        shell: pwsh
+        run: |
+          $NcnnCmakeDir = (Resolve-Path "windows\deps\ncnn-win-x64\x64\lib\cmake\ncnn").Path
+          cmake -S windows -B windows/build/native -G "Visual Studio 17 2022" -A x64 `
+            "-Dncnn_DIR=$NcnnCmakeDir"
+          cmake --build windows/build/native --config Release --parallel
+
+      - name: Publish .NET 8.0 WPF Desktop Studio (Self-Contained win-x64)
+        shell: pwsh
+        run: |
+          dotnet publish windows/Enhancer.Desktop/Enhancer.Desktop.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=false `
+            -p:DebugType=None `
+            -p:DebugSymbols=false `
+            -o windows/dist/Enhancer-v3.0-Windows-x64
+
+      - name: Stage Native Engine, MSVC/OpenMP Runtimes & Offline AI Models
+        shell: pwsh
+        run: |
+          $StageDir = "windows\dist\Enhancer-v3.0-Windows-x64"
+          Copy-Item -Force "windows\build\native\Release\enhancer_engine.dll" $StageDir
+          Copy-Item -Force "windows\build\native\Release\enhancer-cli.exe" $StageDir
+
+          # Bundle MSVC C++ & OpenMP (vcomp140.dll) runtime DLLs so fresh Windows PCs need zero prerequisites
+          $VsInstall = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $RedistRoot = Join-Path $VsInstall "VC\Redist\MSVC"
+          if (Test-Path $RedistRoot) {
+            $DllNames = @("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "vcomp140.dll")
+            foreach ($dll in $DllNames) {
+              $found = Get-ChildItem -Path $RedistRoot -Filter $dll -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { $_.FullName -match "\\x64\\" -and $_.FullName -notmatch "onecore" } |
+                Select-Object -First 1
+              if ($found) {
+                Copy-Item -Force $found.FullName (Join-Path $StageDir $dll)
+                Write-Host "Bundled $($found.FullName)"
+              }
+            }
+          }
+
+          $StageModels = Join-Path $StageDir "models"
+          New-Item -ItemType Directory -Force -Path $StageModels | Out-Null
+          Copy-Item -Force "windows\deps\models\*" $StageModels
+
+          Copy-Item -Force "README.md" (Join-Path $StageDir "README.md")
+          Write-Host "Staged files count in models: $((Get-ChildItem $StageModels).Count)"
+
+      - name: Verify No-GPU Windows Compatibility (CLI Diagnostics, Native Self-Test & WPF Smoke-Test)
+        shell: pwsh
+        run: |
+          $StageDir = (Resolve-Path "windows\dist\Enhancer-v3.0-Windows-x64").Path
+          Write-Host "=== 1. Testing enhancer-cli.exe --diag ==="
+          & "$StageDir\enhancer-cli.exe" --diag
+          if ($LASTEXITCODE -ne 0) { throw "enhancer-cli --diag failed with exit code $LASTEXITCODE" }
+
+          Write-Host "=== 2. Testing enhancer-cli.exe --self-test (256x256 -> 1024x1024 Real-ESRGAN) ==="
+          & "$StageDir\enhancer-cli.exe" --self-test
+          if ($LASTEXITCODE -ne 0) { throw "enhancer-cli --self-test failed with exit code $LASTEXITCODE" }
+
+          Write-Host "=== 3. Testing Enhancer.exe --smoke-test (.NET 8 WPF + P/Invoke + Ultra + Faces + Light AI + 300 DPI) ==="
+          & "$StageDir\Enhancer.exe" --smoke-test
+          if ($LASTEXITCODE -ne 0) { throw "Enhancer.exe --smoke-test failed with exit code $LASTEXITCODE" }
+
+      - name: Package Windows Installer (Setup.exe) & Portable Archive (.zip)
+        shell: pwsh
+        run: |
+          $IsccPaths = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"
+          )
+          $Iscc = $IsccPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $Iscc) {
+            choco install innosetup --no-progress -y
+            $Iscc = $IsccPaths | Where-Object { Test-Path $_ } | Select-Object -First 1
+          }
+          if (-not $Iscc) { throw "Inno Setup ISCC.exe not found" }
+
+          & $Iscc "windows\installer\EnhancerSetup.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+
+          $PortableZip = "windows\dist\Enhancer-v3.0-Windows-x64-Portable.zip"
+          Compress-Archive -Path "windows\dist\Enhancer-v3.0-Windows-x64\*" -DestinationPath $PortableZip -CompressionLevel Optimal -Force
+
+          Get-ChildItem "windows\dist" -File | Select-Object Name, Length | Format-Table -AutoSize
+          Get-FileHash "windows\dist\Enhancer-v3.0-Windows-x64-Setup.exe" -Algorithm SHA256 | Format-List
+          Get-FileHash $PortableZip -Algorithm SHA256 | Format-List
+
+      - name: Upload Enhancer v3.0 Windows Installer (Setup.exe)
+        uses: actions/upload-artifact@v7
+        with:
+          name: Enhancer-v3.0-Windows-x64-Setup
+          path: windows/dist/Enhancer-v3.0-Windows-x64-Setup.exe
+          if-no-files-found: error
+
+      - name: Upload Enhancer v3.0 Windows Portable (.zip)
+        uses: actions/upload-artifact@v7
+        with:
+          name: Enhancer-v3.0-Windows-x64-Portable
+          path: windows/dist/Enhancer-v3.0-Windows-x64-Portable.zip
+          if-no-files-found: error

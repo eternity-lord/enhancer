@@ -537,8 +537,9 @@ bool StreamingLanczos3Resizer::push_source_rows(
             const float* const* hrows_ptr = active_hrows.data();
             uint8_t* out_row = dst_rgb_ + static_cast<size_t>(next_dst_y_) * row_floats_;
 
+            const ptrdiff_t rf_count = static_cast<ptrdiff_t>(row_floats_);
             #pragma omp parallel for schedule(static)
-            for (size_t i = 0; i < row_floats_; ++i) {
+            for (ptrdiff_t i = 0; i < rf_count; ++i) {
                 float acc = 0.0f;
                 for (int k = 0; k < tap_count; ++k) {
                     acc += hrows_ptr[k][i] * wy_ptr[k];

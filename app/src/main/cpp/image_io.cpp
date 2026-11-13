@@ -1,11 +1,17 @@
 #include "image_io.h"
+#include "platform_io.h"
 
 #include <algorithm>
 #include <cerrno>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <new>
+#ifdef _WIN32
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 #include <vector>
 #include <zlib.h>
 
@@ -20,6 +26,9 @@
 #pragma GCC diagnostic ignored "-Wsign-compare"
 #pragma GCC diagnostic ignored "-Wunused-function"
 #endif
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
@@ -256,9 +265,13 @@ bool UniqueFd::close_now() noexcept {
     const int to_close = fd_;
     fd_ = -1;
     int rc = 0;
+#ifdef _WIN32
+    rc = ::_close(to_close);
+#else
     do {
         rc = ::close(to_close);
     } while (rc < 0 && errno == EINTR);
+#endif
     return rc == 0;
 }
 
@@ -269,7 +282,10 @@ public:
     static constexpr size_t kBufferSize = 65536;
 
     explicit BufferedFdWriter(int fd)
-        : fd_(fd), buffer_(kBufferSize), used_(0), error_(false), last_errno_(0) {}
+        : fd_(fd), fp_(nullptr), buffer_(kBufferSize), used_(0), error_(false), last_errno_(0) {}
+
+    explicit BufferedFdWriter(std::FILE* fp)
+        : fd_(-1), fp_(fp), buffer_(kBufferSize), used_(0), error_(false), last_errno_(0) {}
 
     void append(const uint8_t* src, size_t len) noexcept {
         if (error_ || len == 0) {
@@ -294,9 +310,29 @@ public:
         if (error_) {
             return false;
         }
+        if (used_ == 0) {
+            return true;
+        }
+        if (fp_ != nullptr) {
+            const size_t written = std::fwrite(buffer_.data(), 1, used_, fp_);
+            if (written != used_) {
+                error_ = true;
+                last_errno_ = errno != 0 ? errno : EIO;
+                return false;
+            }
+            used_ = 0;
+            return true;
+        }
         size_t written_total = 0;
         while (written_total < used_) {
+#ifdef _WIN32
+            const unsigned int chunk = static_cast<unsigned int>(
+                std::min<size_t>(used_ - written_total, 0x40000000u)
+            );
+            const int n = ::_write(fd_, buffer_.data() + written_total, chunk);
+#else
             const ssize_t n = ::write(fd_, buffer_.data() + written_total, used_ - written_total);
+#endif
             if (n < 0) {
                 if (errno == EINTR) {
                     continue;
@@ -321,6 +357,7 @@ public:
 
 private:
     int fd_;
+    std::FILE* fp_;
     std::vector<uint8_t> buffer_;
     size_t used_;
     bool error_;
@@ -684,7 +721,192 @@ bool write_rgb_image_to_fd(
         return false;
     }
 
+#ifdef _WIN32
+    (void)::_commit(fd);
+#else
     (void)::fsync(fd);
+#endif
+    return true;
+}
+
+bool write_rgb_image_to_path(
+    const std::string& utf8_path,
+    const uint8_t* rgb_data,
+    int width,
+    int height,
+    ImageFormat format,
+    int jpeg_quality,
+    std::string* out_error,
+    EnhancerStatus* out_status,
+    uint64_t* out_requested_bytes,
+    int dpi
+) {
+    if (out_status) {
+        *out_status = EnhancerStatus::OK;
+    }
+    if (out_requested_bytes) {
+        *out_requested_bytes = 0;
+    }
+
+    size_t total_rgb_bytes = 0;
+    if (utf8_path.empty() || !rgb_data || !checked_image_bytes(width, height, 3, total_rgb_bytes)) {
+        if (out_status) {
+            *out_status = EnhancerStatus::ERR_INVALID_ARGS;
+        }
+        if (out_error) {
+            *out_error = "Invalid arguments or dimensions passed to write_rgb_image_to_path";
+        }
+        return false;
+    }
+
+    std::FILE* fp = open_utf8_file(utf8_path, "wb");
+    if (!fp) {
+        if (out_status) {
+            *out_status = EnhancerStatus::ERR_ENCODE_WRITE;
+        }
+        if (out_error) {
+            *out_error = "Could not open output file for writing: " + utf8_path;
+        }
+        return false;
+    }
+
+    std::unique_ptr<BufferedFdWriter> writer_ptr;
+    try {
+        if (out_requested_bytes) {
+            *out_requested_bytes = BufferedFdWriter::kBufferSize;
+        }
+        writer_ptr = std::make_unique<BufferedFdWriter>(fp);
+    } catch (const std::bad_alloc&) {
+        std::fclose(fp);
+        if (out_status) {
+            *out_status = EnhancerStatus::ERR_OUT_OF_MEMORY;
+        }
+        if (out_error) {
+            *out_error = "std::bad_alloc allocating 64 KB BufferedFdWriter";
+        }
+        return false;
+    }
+
+    BufferedFdWriter& writer = *writer_ptr;
+    if (format == ImageFormat::PNG) {
+        EnhancerStatus png_status = EnhancerStatus::OK;
+        uint64_t png_req_bytes = 0;
+        std::string png_err;
+        const bool png_ok = write_png_streaming_zlib(
+            writer,
+            rgb_data,
+            width,
+            height,
+            dpi,
+            png_status,
+            png_req_bytes,
+            png_err
+        );
+        if (out_requested_bytes && png_req_bytes > 0) {
+            *out_requested_bytes = png_req_bytes;
+        }
+        if (!png_ok) {
+            std::fclose(fp);
+            if (out_status) {
+                *out_status = (png_status != EnhancerStatus::OK)
+                    ? png_status
+                    : EnhancerStatus::ERR_ENCODE_WRITE;
+            }
+            if (out_error) {
+                *out_error = !png_err.empty() ? png_err : "Streaming PNG encoding failed";
+            }
+            return false;
+        }
+    } else {
+        if (width > 65535 || height > 65535) {
+            std::fclose(fp);
+            if (out_status) {
+                *out_status = EnhancerStatus::ERR_INVALID_ARGS;
+            }
+            if (out_error) {
+                *out_error = "JPEG dimensions exceed 65535x65535 limit; select PNG";
+            }
+            return false;
+        }
+        const int clamped_quality = std::clamp(jpeg_quality, 1, 100);
+        const int jpg_ok = write_jpg_full_chroma_444(
+            &stbi_fd_write_callback,
+            &writer,
+            width,
+            height,
+            rgb_data,
+            clamped_quality,
+            dpi
+        );
+        if (jpg_ok == 0) {
+            std::fclose(fp);
+            if (out_status) {
+                *out_status = EnhancerStatus::ERR_ENCODE_WRITE;
+            }
+            if (out_error) {
+                *out_error = "4:4:4 JPEG encoder failed";
+            }
+            return false;
+        }
+    }
+
+    const bool flushed = writer.flush();
+    const int flush_rc = std::fflush(fp);
+    const int close_rc = std::fclose(fp);
+    if (!flushed || writer.has_error() || flush_rc != 0 || close_rc != 0) {
+        if (out_status) {
+            *out_status = EnhancerStatus::ERR_ENCODE_WRITE;
+        }
+        if (out_error) {
+            *out_error = "Failed flushing or closing output image file: " + utf8_path;
+        }
+        return false;
+    }
+
+    return true;
+}
+
+bool decode_image_file_utf8_to_rgba(
+    const std::string& utf8_path,
+    NativeByteBuffer& out_rgba,
+    int& out_width,
+    int& out_height,
+    std::string* out_error
+) {
+    out_rgba.reset();
+    out_width = 0;
+    out_height = 0;
+
+    std::FILE* fp = open_utf8_file(utf8_path, "rb");
+    if (!fp) {
+        if (out_error) {
+            *out_error = "Could not open input image file: " + utf8_path;
+        }
+        return false;
+    }
+
+    int w = 0;
+    int h = 0;
+    int comp = 0;
+    stbi_uc* decoded = stbi_load_from_file(fp, &w, &h, &comp, 4);
+    std::fclose(fp);
+
+    if (!decoded || w <= 0 || h <= 0) {
+        if (decoded) {
+            stbi_image_free(decoded);
+        }
+        if (out_error) {
+            const char* reason = stbi_failure_reason();
+            *out_error = std::string("Failed decoding input image (") +
+                (reason ? reason : "unsupported or corrupt") + "): " + utf8_path;
+        }
+        return false;
+    }
+
+    // stbi_load_from_file uses std::malloc under the hood, matching NativeByteBuffer FreeDeleter.
+    out_rgba = NativeByteBuffer(reinterpret_cast<uint8_t*>(decoded));
+    out_width = w;
+    out_height = h;
     return true;
 }
 
