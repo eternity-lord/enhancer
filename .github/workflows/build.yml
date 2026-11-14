@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Enhancer v3.0 Universal Debug APK (arm64-v8a / armeabi-v7a / x86_64)
+    name: Build Enhancer v3.1 Universal Release APK (arm64-v8a / armeabi-v7a / x86_64)
     runs-on: ubuntu-latest
 
     steps:
@@ -20,7 +20,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/enhancer-build-deps
-          key: enhancer-deps-v3-ncnn20261020-cf-cfe0fe2d
+          key: enhancer-deps-v3.1-ncnn20261020-cf-cfe0fe2d
 
       - name: Prepare CodeFormer weights & multi-ABI ncnn
         run: |
@@ -65,30 +65,42 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x ./gradlew
 
-      - name: Build Universal Debug APK
+      - name: Build Universal Release APK
         shell: bash
         run: |
           set -o pipefail
-          if ! ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle_build.log; then
+          if ! ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee gradle_build.log; then
             grep -E "e: |error:|FAILURE:|What went wrong|> " gradle_build.log | tail -n 40 | while IFS= read -r line; do
               echo "::error::$line"
             done
             exit 1
           fi
 
-      - name: Verify packaged neural models & ABIs in Enhancer-v3.0-debug.apk
+      - name: Verify packaged neural models & ABIs in Enhancer-v3.1-universal.apk
         run: |
-          APK_DIR="app/build/outputs/apk/debug"
-          TARGET_APK="$APK_DIR/Enhancer-v3.0-debug.apk"
+          APK_DIR="app/build/outputs/apk/release"
+          TARGET_APK="$APK_DIR/Enhancer-v3.1-universal.apk"
           if [ ! -f "$TARGET_APK" ]; then
-            FOUND_APK="$(find "$APK_DIR" -maxdepth 2 -name '*-debug.apk' | head -n 1)"
+            FOUND_APK="$(find "$APK_DIR" -maxdepth 2 -name '*-release.apk' | head -n 1)"
             if [ -z "$FOUND_APK" ]; then
-              echo "::error::No debug APK found under $APK_DIR"
+              echo "::error::No release APK found under $APK_DIR"
               exit 1
             fi
             cp -f "$FOUND_APK" "$TARGET_APK"
           fi
           ls -lh "$TARGET_APK"
+          APK_BYTES="$(stat -c '%s' "$TARGET_APK")"
+          if [ "$APK_BYTES" -ge 2147483648 ]; then
+            echo "::error::APK exceeds the supported 2 GiB delivery limit"
+            exit 1
+          fi
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)"
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found"
+            exit 1
+          fi
+          "$APKSIGNER" verify --verbose "$TARGET_APK"
+          sha256sum "$TARGET_APK" | tee "$TARGET_APK.sha256"
           APK_LIST="$(unzip -l "$TARGET_APK")"
           echo "$APK_LIST" | grep -E "lib/.*/libenhancer\.so|assets/models/(codeformer|scrfd|realesr|lsdir)"
           for req in \
@@ -108,24 +120,27 @@ jobs:
             fi
           done
 
-      - name: Upload Enhancer-v3.0-debug artifact
+      - name: Upload Enhancer-v3.1-universal artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Enhancer-v3.0-debug
-          path: app/build/outputs/apk/debug/Enhancer-v3.0-debug.apk
+          name: Enhancer-v3.1-universal
+          path: |
+            app/build/outputs/apk/release/Enhancer-v3.1-universal.apk
+            app/build/outputs/apk/release/Enhancer-v3.1-universal.apk.sha256
           if-no-files-found: error
 
-      - name: Attach Universal Android APK to GitHub Release v3.0.0 (on main)
+      - name: Attach Universal Android APK to GitHub Release v3.1.0 (on main)
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v3.0.0"
-          APK="app/build/outputs/apk/debug/Enhancer-v3.0-debug.apk"
+          TAG="v3.1.0"
+          APK="app/build/outputs/apk/release/Enhancer-v3.1-universal.apk"
+          SHA="${APK}.sha256"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$APK" --clobber
+            gh release upload "$TAG" "$APK" "$SHA" --clobber
           else
-            gh release create "$TAG" "$APK" \
-              --title "Enhancer v3.0 Studio (Windows x64 & Android)" \
-              --notes "Enhancer v3.0 Studio — Built by Mohammad Irani (100% Offline AI Super-Resolution, Face Restoration & Smart HDR for Windows x64 & Android)."
+            gh release create "$TAG" "$APK" "$SHA" \
+              --title "Enhancer v3.1 Studio Android (detail-first)" \
+              --notes "Enhancer v3.1 Android — offline detail-first exports with default Max Quality full-resolution inference, 4:4:4 JPEG 100%, lossless PNG, 16K Print Master target, tiled Vulkan/CPU execution, and automatic fallback across arm64-v8a, armeabi-v7a, and x86_64."
           fi

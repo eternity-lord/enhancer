@@ -130,7 +130,7 @@ enum class EnhanceMode : int {
     GENTLE = 1,      // Smart Resize: minimal modification for text, logos, clean shots
     BALANCED = 2,    // Everyday smartphone, travel & web photos
     STRONG = 3,      // Heavy deblur, denoise & JPEG recovery for degraded inputs
-    ULTRA = 4,       // Flagship 4K/8K detail synthesizer with Intensity & Size of changes
+    ULTRA = 4,       // Flagship 4K/8K/16K detail synthesizer with Intensity & Size of changes
     DIGITAL_ART = 5, // Anime, illustrations, comics, vector art & AI art
     OLD_PHOTO = 6,   // Vintage scan recovery: dust/speckle, fading, cast & face restore
 };
@@ -190,7 +190,7 @@ struct UpscaleConfig {
     int target_long_side = 0;      // 0 = Native xN, 2560 = 2K, 3840 = 4K, 7680 = 8K, 15360 = 16K
     int requested_tile_size = 200; // <= 0 means default 200; minimum 48
     bool disable_fp16 = false;
-    bool max_quality = false;      // Default OFF: full-res inference + 32px feathered tiles + Lanczos3
+    bool max_quality = false;      // Native API default OFF; Android detail-first profile enables it
     bool tta_x8 = false;           // Default OFF: 8x flip/rotate Test-Time Augmentation
     bool safe_mode = false;        // Default OFF: forces CPU + tile 64 + no Max quality + no TTA
     bool force_cpu = false;        // Forces CPU backend without overriding tile size unless safe_mode
@@ -207,7 +207,7 @@ struct UpscaleConfig {
     float ultra_size = 0.45f;        // 0.0..1.0 Ultra mode multi-scale Laplacian radius ("Size of changes")
     int dpi = 300;                 // Print-ready DPI metadata (default 300 DPI)
     ImageFormat format = ImageFormat::JPEG;
-    int jpeg_quality = 98;         // 90..100 (default 98), always 4:4:4 full chroma
+    int jpeg_quality = 100;        // 90..100 (default 100), always 4:4:4 full chroma
     int output_fd = -1;
     std::string output_file_path;  // Desktop/CLI UTF-8 output file path when output_fd < 0
 };

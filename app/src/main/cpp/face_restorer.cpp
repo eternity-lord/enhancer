@@ -674,13 +674,15 @@ bool run_codeformer_batch_once(
 
 std::vector<NormalizedFace> detect_faces_scrfd(
     AAssetManager* asset_manager,
-    const uint8_t* rgb,
+    const uint8_t* pixels,
     int width,
     int height,
+    size_t stride_bytes,
+    bool pixels_are_rgba,
     const std::string& fallback_models_dir
 ) {
     std::vector<NormalizedFace> result;
-    if (!rgb || width < 24 || height < 24) {
+    if (!pixels || width < 24 || height < 24) {
         return result;
     }
 
@@ -723,7 +725,21 @@ std::vector<NormalizedFace> detect_faces_scrfd(
             w = std::max(1, static_cast<int>(std::lround(static_cast<float>(width) * scale)));
         }
 
-        ncnn::Mat in = ncnn::Mat::from_pixels_resize(rgb, ncnn::Mat::PIXEL_RGB, width, height, w, h);
+        const size_t packed_stride = pixels_are_rgba
+            ? std::max(stride_bytes, static_cast<size_t>(width) * 4u)
+            : std::max(stride_bytes, static_cast<size_t>(width) * 3u);
+        const int pixel_type = pixels_are_rgba
+            ? ncnn::Mat::PIXEL_RGBA2RGB
+            : ncnn::Mat::PIXEL_RGB;
+        ncnn::Mat in = ncnn::Mat::from_pixels_resize(
+            pixels,
+            pixel_type,
+            width,
+            height,
+            static_cast<int>(packed_stride),
+            w,
+            h
+        );
         wpad = (w + 31) / 32 * 32 - w;
         hpad = (h + 31) / 32 * 32 - h;
         ncnn::Mat in_pad;

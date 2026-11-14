@@ -351,6 +351,11 @@ public:
         net_.opt.use_bf16_storage = false;
         net_.opt.use_cooperative_matrix = false;
         cpu_threads_ = threads;
+        // Keep ncnn and the OpenMP post-processing stages on the same bounded worker pool.
+        // Without this, the custom tile compositor can oversubscribe little/big CPU clusters
+        // while ncnn is active, which hurts throughput and raises thermal throttling risk.
+        ncnn::set_omp_dynamic(0);
+        ncnn::set_omp_num_threads(threads);
 
         if (config.disable_fp16) {
             net_.opt.use_fp16_packed = false;
@@ -1129,9 +1134,14 @@ TilePassOutcome run_feathered_tiled_inference(
     std::vector<float> prev_seam_flt;
     std::vector<float> cur_bot_seam_flt;
     std::vector<float> right_col_seam_flt;
+    // Reuse the horizontal feather table for every tile. The previous implementation created
+    // and destroyed this vector once per tile, which is especially expensive for MaxQ/TTA.
+    std::vector<float> wx_table;
 
     try {
         tile_rgb.assign(tile_bytes, 0u);
+        const size_t max_wx_entries = static_cast<size_t>(fixed_tile_in_w) * static_cast<size_t>(m);
+        wx_table.reserve(max_wx_entries);
         if (ny > 1) {
             size_t v_seam_elems = 0;
             if (!checked_mul_size(static_cast<size_t>(feather_out), row_channels, v_seam_elems)) {
@@ -1241,9 +1251,8 @@ TilePassOutcome run_feathered_tiled_inference(
             const int pad_left = prepad_in;
             const int pad_top = prepad_in;
 
-            // Zero scratch and populate full uniform tile (`fixed_tile_in_w x fixed_tile_in_h`)
-            // with true symmetric border reflection (`reflect_pad = true`).
-            std::fill(tile_rgb.begin(), tile_rgb.end(), static_cast<uint8_t>(0));
+            // Populate every byte of the uniform tile directly; `fill_padded_tile_rgb` writes
+            // the complete destination, so a separate full-tile memset is redundant.
             fill_padded_tile_rgb(
                 work_ptr,
                 work_is_rgba,
@@ -1326,7 +1335,21 @@ TilePassOutcome run_feathered_tiled_inference(
             const int right_ov_w = 2 * hr;
             const int ready_w = ext_w - right_ov_w;
 
-            std::vector<float> wx_table(static_cast<size_t>(ext_w));
+            // Capacity was reserved once above; resize now only adjusts the logical view.
+            try {
+                wx_table.resize(static_cast<size_t>(ext_w));
+            } catch (const std::bad_alloc&) {
+                out_failure = FailureInfo{
+                    EnhancerStatus::ERR_OUT_OF_MEMORY,
+                    "std::bad_alloc(wx_table)",
+                    static_cast<uint64_t>(ext_w) * sizeof(float),
+                    active_tile,
+                    backend_label,
+                    0,
+                    ""
+                };
+                return TilePassOutcome::FAILED;
+            }
             for (int lx = 0; lx < ext_w; ++lx) {
                 wx_table[static_cast<size_t>(lx)] = linear_tent_weight(ext_x0 + lx, sx0, sx1, hl, hr);
             }
@@ -1441,6 +1464,15 @@ UpscaleResult execute_pipeline_internal(
     const ProgressCallback& progress_cb
 ) {
     UpscaleResult result;
+    const auto pipeline_started = std::chrono::steady_clock::now();
+    int64_t inference_elapsed_ms = 0;
+    int64_t postprocess_elapsed_ms = 0;
+    int64_t encode_elapsed_ms = 0;
+    const auto elapsed_since = [](const auto& start) -> int64_t {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start
+        ).count();
+    };
     UniqueFd owned_output_fd(write_to_fd ? raw_config.output_fd : -1);
     {
         // Wait if one-shot startup FP16 calibration is currently running so two Vulkan sessions never overlap.
@@ -1524,10 +1556,26 @@ UpscaleResult execute_pipeline_internal(
         return joined;
     };
 
+    int last_reported_progress = -1;
+    std::string last_reported_backend;
+    int last_reported_tile = -1;
     const auto report_progress = [&](int pct, const std::string& backend_str) {
-        if (progress_cb) {
-            progress_cb(std::clamp(pct, 0, 100), backend_str, active_tile);
+        if (!progress_cb) {
+            return;
         }
+        const int clamped_pct = std::clamp(pct, 0, 100);
+        // TTA can produce dozens of subpasses with the same integer percentage. Avoid crossing
+        // the JNI boundary for duplicate progress values while retaining backend/tile changes.
+        if (clamped_pct == last_reported_progress &&
+            backend_str == last_reported_backend &&
+            active_tile == last_reported_tile &&
+            clamped_pct != 100) {
+            return;
+        }
+        last_reported_progress = clamped_pct;
+        last_reported_backend = backend_str;
+        last_reported_tile = active_tile;
+        progress_cb(clamped_pct, backend_str, active_tile);
     };
 
     // -------------------------------------------------------------------------
@@ -1575,8 +1623,10 @@ UpscaleResult execute_pipeline_internal(
     }
     const bool want_pre_denoise = (effective_denoise > 0.01f);
     const bool want_faces = (config.enhance_faces && config.face_strength > 0.02f);
+    // Face detection can consume the locked RGBA bitmap through ncnn's stride-aware converter;
+    // only allocate a packed RGB work frame when a resize or pixel-domain effect actually needs it.
     const bool need_initial_work_rgb =
-        initial_plan.pre_downscaled || want_old_photo || want_pre_denoise || want_faces;
+        initial_plan.pre_downscaled || want_old_photo || want_pre_denoise;
 
     if (need_initial_work_rgb) {
         size_t init_work_bytes = 0;
@@ -1651,16 +1701,22 @@ UpscaleResult execute_pipeline_internal(
                 return result;
             }
         }
-        if (want_faces) {
-            detected_faces = detect_faces_scrfd(
-                asset_manager,
-                work_rgb_buf.get(),
-                cur_work_w,
-                cur_work_h,
-                config.models_base_dir
-            );
-            result.faces_detected = static_cast<int>(detected_faces.size());
-        }
+    }
+
+    if (want_faces) {
+        // `work_ptr` is either the compact RGB frame above or the still-locked source RGBA
+        // bitmap. SCRFD accepts both layouts, so the common face-enabled path no longer copies
+        // an otherwise untouched full-resolution bitmap just for detection.
+        detected_faces = detect_faces_scrfd(
+            asset_manager,
+            work_ptr,
+            cur_work_w,
+            cur_work_h,
+            work_stride,
+            work_is_rgba,
+            config.models_base_dir
+        );
+        result.faces_detected = static_cast<int>(detected_faces.size());
     }
 
     if (cancel_flag.load(std::memory_order_relaxed)) {
@@ -2177,6 +2233,7 @@ UpscaleResult execute_pipeline_internal(
     std::vector<float> plane_b;
     std::vector<uint8_t> band_emit_rgb;
 
+    const auto inference_started = std::chrono::steady_clock::now();
     bool inference_done = false;
     while (!inference_done) {
         if (cancel_flag.load(std::memory_order_relaxed)) {
@@ -2286,6 +2343,8 @@ UpscaleResult execute_pipeline_internal(
     band_emit_rgb.shrink_to_fit();
     work_rgb_buf.reset();
     session.release();
+    inference_elapsed_ms = elapsed_since(inference_started);
+    const auto postprocess_started = std::chrono::steady_clock::now();
 
     result.backend_used = backend_label;
     result.final_tile_size = active_tile;
@@ -2361,6 +2420,8 @@ UpscaleResult execute_pipeline_internal(
         }
     }
 
+    postprocess_elapsed_ms = elapsed_since(postprocess_started);
+
     // Optional min/max pixel range capture for synthetic self-test
     if (out_sample_stats_min_max != nullptr && final_rgb) {
         size_t total_bytes = 0;
@@ -2378,6 +2439,7 @@ UpscaleResult execute_pipeline_internal(
 
     if (write_to_fd) {
         report_progress(96, backend_label);
+        const auto encode_started = std::chrono::steady_clock::now();
         std::string encode_err;
         EnhancerStatus encode_status = EnhancerStatus::OK;
         uint64_t encode_req_bytes = 0;
@@ -2412,6 +2474,7 @@ UpscaleResult execute_pipeline_internal(
                 config.dpi
             );
         }
+        encode_elapsed_ms = elapsed_since(encode_started);
         final_rgb.reset();
 
         if (!write_ok || !close_ok) {
@@ -2437,6 +2500,7 @@ UpscaleResult execute_pipeline_internal(
     report_progress(100, backend_label);
     result.status = EnhancerStatus::OK;
 
+    const int64_t total_elapsed_ms = elapsed_since(pipeline_started);
     size_t final_bytes = 0;
     checked_image_bytes(plan.final_w, plan.final_h, 3, final_bytes);
     result.error_detail = "[OK] mode=" + std::string(enhance_mode_name(config.mode)) +
@@ -2448,7 +2512,15 @@ UpscaleResult execute_pipeline_internal(
             ? (" | faces=" + std::to_string(result.faces_restored) + "/" + std::to_string(result.faces_detected))
             : "") +
         (config.light_ai ? " | LightAI=ON" : "") +
+        " | quality=" + std::string(active_max_quality ? "MaxQ" : "Standard") +
+        " | fp16=" + std::string(active_disable_fp16 ? "OFF" : "ON") +
+        " | output=" + std::string(config.format == ImageFormat::PNG ? "PNG-lossless" : "JPEG-444") +
+        (config.format == ImageFormat::JPEG ? (" q=" + std::to_string(std::clamp(config.jpeg_quality, 90, 100))) : "") +
         (gpu_heap_budget_mb > 0 ? (" | gpu_heap_budget=" + std::to_string(gpu_heap_budget_mb) + " MB") : "") +
+        " | timing_ms=infer:" + std::to_string(inference_elapsed_ms) +
+        ",post:" + std::to_string(postprocess_elapsed_ms) +
+        ",encode:" + std::to_string(encode_elapsed_ms) +
+        ",total:" + std::to_string(total_elapsed_ms) +
         (result.fallback_summary.empty() ? "" : (" | fallbacks=" + result.fallback_summary));
     return result;
 }

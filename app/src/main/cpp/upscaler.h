@@ -60,7 +60,7 @@ SeamTestReport run_native_seam_test(
 // Executes the full native upscale + post-process + streaming resize + encode pipeline:
 // - Standard mode: area/box pre-downscale when src*m >= target, >=16px reflection prepad + per-tile
 //   float overlap feathering, optional TTA x8 + unsharp mask.
-// - Max Quality mode (off by default): full-res source, 32px reflection prepad + 32px per-tile float
+// - Max Quality mode: full-res source, 32px reflection prepad + 32px per-tile float
 //   feathered overlap blending, optional TTA x8 + per-tile adaptive unsharp mask, and streaming Lanczos3.
 // - Safe mode (off by default): forces CPU + tile 64 + no Max quality + no TTA.
 // - Ordered automatic fallback on failure: halve tile (down to 48) -> disable TTA -> disable Max quality -> CPU.

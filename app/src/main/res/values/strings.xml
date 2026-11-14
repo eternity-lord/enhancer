@@ -21,7 +21,7 @@
     <string name="browse_files">Browse Files</string>
     <string name="clear_finished">Clear Finished</string>
     <string name="empty_queue_title">No photos selected yet</string>
-    <string name="empty_queue_body">Pick one or multiple portraits, old scans, digital art, or camera shots to enhance up to 4K or 8K (300 DPI) completely offline.</string>
+    <string name="empty_queue_body">Pick one or multiple portraits, old scans, digital art, or camera shots to enhance up to 4K, 8K, or 16K (300 DPI) completely offline.</string>
 
     <!-- Let's Enhance 7 Studio Modes -->
     <string name="settings_title">AI Enhancement Studio</string>
@@ -35,7 +35,7 @@
     <string name="mode_strong">Strong</string>
     <string name="mode_strong_desc">Heavy JPEG artifact removal, deblurring &amp; low-light rescue</string>
     <string name="mode_ultra">Ultra</string>
-    <string name="mode_ultra_desc">Maximum 4K/8K micro-detail synthesis &amp; print clarity controls</string>
+    <string name="mode_ultra_desc">Maximum 4K/8K/16K micro-detail synthesis &amp; print clarity controls</string>
     <string name="mode_digital_art">Digital Art</string>
     <string name="mode_digital_art_desc">Sharp line art &amp; vibrant flat colors for anime, comics &amp; AI art</string>
     <string name="mode_old_photo">Old Photo</string>
@@ -86,10 +86,11 @@
     <string name="target_2k">2K (2560 px)</string>
     <string name="target_4k">4K (3840 px)</string>
     <string name="target_8k">8K (7680 px)</string>
+    <string name="target_16k">16K Print Master (15360 px)</string>
 
     <!-- Quality & Post-processing controls (100% unlocked!) -->
     <string name="label_max_quality">Max Quality Supersampling</string>
-    <string name="max_quality_desc">Full-resolution AI inference (never pre-downscales), 32 px feathered tile overlap &amp; streaming Lanczos3</string>
+    <string name="max_quality_desc">Detail-first default: full-resolution AI inference (never pre-downscales), 32 px feathered tile overlap &amp; streaming Lanczos3</string>
     <string name="label_tta_x8">TTA (x8 Ensemble Mode)</string>
     <string name="tta_x8_desc">Averages all 8 flip/rotate AI passes per tile for maximum edge precision</string>
     <string name="warn_tta_slow">x8 Mode runs 8 AI passes per tile and takes ~8× longer (cancelable anytime).</string>
@@ -103,7 +104,7 @@
     <string name="format_jpeg">JPEG (4:4:4 • 300 DPI)</string>
     <string name="format_png">PNG (Lossless • 300 DPI)</string>
     <string name="label_jpeg_quality">JPEG Quality: %1$d%% (4:4:4 Full Chroma • 300 DPI)</string>
-    <string name="png_slow_huge_warning" formatted="false">PNG encoding creates large files (40–90 MB at 8K). Studio JPEG 98% (4:4:4, 300 DPI) is recommended.</string>
+    <string name="png_slow_huge_warning" formatted="false">PNG encoding is lossless but creates very large files (40–90 MB at 8K and much more at 16K). Studio JPEG 100% (4:4:4, 300 DPI) is the faster high-detail option.</string>
 
     <string name="label_compute_backend">Compute Backend</string>
     <string name="backend_auto_gpu">Auto GPU (Vulkan + Smart CPU Fallback)</string>
@@ -197,11 +198,11 @@
     <string name="about_content_desc">About Enhancer</string>
     <string name="about_title">About Enhancer</string>
     <string name="about_description" formatted="false">100% offline on-device AI photo enhancement &amp; super-resolution studio for Android powered by Real-ESRGAN, CodeFormer, SCRFD, Light AI, ncnn, and Vulkan GPU compute.</string>
-    <string name="about_whats_new_title">What\'s New in 3.0</string>
+    <string name="about_whats_new_title">What\'s New in 3.1</string>
     <string name="about_whats_new_1">7 Studio AI Modes: Prime, Gentle, Balanced, Strong, Ultra (with Intensity &amp; Size of Changes), Digital Art, and Old Photo</string>
     <string name="about_whats_new_2">Enhance Faces (Photo 2.0): 5-point SCRFD landmark alignment + CodeFormer 512×512 eye, lash &amp; skin restoration with B&amp;W/sepia preservation</string>
     <string name="about_whats_new_3">Light AI (Smart HDR): halo-free Guided Filter shadow recovery, highlight roll-off, adaptive white balance &amp; natural vibrance</string>
-    <string name="about_whats_new_4">Anti-gray Vulkan tile integrity verifier, universal multi-ABI APK (arm64-v8a / armeabi-v7a / x86_64, Android 7.0+), and 300 DPI print exports</string>
+    <string name="about_whats_new_4">Detail-first Max Quality default, faster tiled scheduling, 4:4:4 JPEG 100%, 16K Print Master target, anti-gray Vulkan verifier, and universal multi-ABI APK</string>
     <string name="about_oss_title">Open-source credits</string>
     <string name="oss_realesrgan">Real-ESRGAN &amp; LSDIR — BSD 3-Clause License</string>
     <string name="oss_codeformer">CodeFormer &amp; InsightFace SCRFD — S-Lab / MIT License</string>

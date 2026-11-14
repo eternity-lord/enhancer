@@ -358,7 +358,7 @@ object NativeEnhancer {
         ultraSize: Int = 45,
         dpi: Int = 300,
         outputFormatCode: Int,
-        jpegQuality: Int = 98,
+        jpegQuality: Int = 100,
         detachedOutputFd: Int,
         onProgressUpdate: (progress: Int, backend: String, tileSize: Int) -> Unit
     ): NativeRunOutcome {

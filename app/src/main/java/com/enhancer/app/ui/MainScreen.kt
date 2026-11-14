@@ -156,7 +156,7 @@ fun MainScreen(
                 }
             }
 
-            // Studio Controls Card (7 AI Modes, Enhance Faces, Light AI, 2K/4K/8K, 300 DPI — never locked!)
+            // Studio Controls Card (7 AI Modes, Enhance Faces, Light AI, 2K/4K/8K/16K, 300 DPI — never locked!)
             item {
                 ControlsSection(
                     settings = uiState.settings,
