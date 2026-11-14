@@ -347,7 +347,7 @@ fun ControlsSection(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // 4. Target resolution (Native xN / 2K / 4K / 8K — Print-Ready 300 DPI)
+                // 4. Target resolution (Native xN / 2K / 4K / 8K / 16K — Print-Ready 300 DPI)
                 SectionLabel(text = stringResource(R.string.label_target))
                 Spacer(modifier = Modifier.height(6.dp))
                 FlowRow(
@@ -377,6 +377,12 @@ fun ControlsSection(
                         onClick = { onSettingsChanged(settings.copy(target = TargetPreset.UHD_8K)) },
                         enabled = enabled,
                         label = { Text(stringResource(R.string.target_8k)) }
+                    )
+                    FilterChip(
+                        selected = settings.target == TargetPreset.UHD_16K,
+                        onClick = { onSettingsChanged(settings.copy(target = TargetPreset.UHD_16K)) },
+                        enabled = enabled,
+                        label = { Text(stringResource(R.string.target_16k)) }
                     )
                 }
 

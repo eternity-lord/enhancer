@@ -619,8 +619,8 @@ class EnhancerQueueRepository(private val appContext: Context) {
         val ultraIntensity = prefs.getInt("ultra_intensity", mode.defaultUltraIntensity).coerceIn(0, 100)
         val ultraSize = prefs.getInt("ultra_size", mode.defaultUltraSize).coerceIn(0, 100)
 
-        // Verified OFF by default across settings & preferences; legacy safe_mode migrates to unlocked forceCpu
-        val maxQuality = prefs.getBoolean("max_quality", false)
+        // New installs default to full-resolution Max Quality; an existing explicit user choice is preserved.
+        val maxQuality = prefs.getBoolean("max_quality", true)
         val ttaX8 = prefs.getBoolean("tta_x8", false)
         val legacySafeMode = prefs.getBoolean("safe_mode", false)
         val forceCpu = prefs.getBoolean("force_cpu", legacySafeMode)
@@ -630,7 +630,7 @@ class EnhancerQueueRepository(private val appContext: Context) {
             OutputFormat.valueOf(prefs.getString("format", OutputFormat.JPEG.name)!!)
         }.getOrDefault(OutputFormat.JPEG)
 
-        val jpegQuality = prefs.getInt("jpeg_quality", 98).coerceIn(90, 100)
+        val jpegQuality = prefs.getInt("jpeg_quality", 100).coerceIn(90, 100)
         val dpi = prefs.getInt("dpi", 300).coerceIn(72, 1200)
 
         val tile = runCatching {

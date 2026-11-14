@@ -133,7 +133,7 @@ int write_jpg_full_chroma_444(
 
     const int clamped_q = std::clamp(quality, 1, 100);
     int q_scale = (clamped_q < 50) ? (5000 / clamped_q) : (200 - clamped_q * 2);
-    // At studio quality >= 97 (default is 98), step smoothly to unit quantizers so smooth areas
+    // At studio quality >= 97 (default is 100), step smoothly to unit quantizers so smooth areas
     // never suffer 8x8 DCT AC-zeroing micro-block mesh texture:
     //   Q=97 -> q_scale=2, Q=98 -> q_scale=1, Q=99..100 -> q_scale=0 (all 64 quantizers = 1).
     if (clamped_q == 97) {
@@ -403,23 +403,10 @@ void write_png_chunk(
     writer.append(crc_be, 4);
 }
 
-inline uint8_t paeth_predictor(int a, int b, int c) noexcept {
-    const int p = a + b - c;
-    const int pa = std::abs(p - a);
-    const int pb = std::abs(p - b);
-    const int pc = std::abs(p - c);
-    if (pa <= pb && pa <= pc) {
-        return static_cast<uint8_t>(a);
-    }
-    if (pb <= pc) {
-        return static_cast<uint8_t>(b);
-    }
-    return static_cast<uint8_t>(c);
-}
-
 // Streams RGB888 rows directly into 64 KB PNG IDAT chunks using zlib.
-// Allocates ONLY two single-row filter buffers (`2 * (width * 3 + 1)` bytes) + 64 KB deflate buffer:
-// ZERO second full-size image buffer!
+// Uses one Sub-filter row buffer and a low CPU compression level: PNG remains bit-exact
+// lossless, while avoiding a second full-width candidate filter and expensive per-byte Paeth
+// scoring on large 8K/16K exports. The deliberate trade-off is a somewhat larger file.
 bool write_png_streaming_zlib(
     BufferedFdWriter& writer,
     const uint8_t* rgb_data,
@@ -441,12 +428,10 @@ bool write_png_streaming_zlib(
     constexpr size_t kIdatChunkBytes = 65536u;
 
     std::vector<uint8_t> cand_sub;
-    std::vector<uint8_t> cand_paeth;
     std::vector<uint8_t> zbuf;
     try {
-        out_req_bytes = static_cast<uint64_t>(filtered_len) * 2u + kIdatChunkBytes;
+        out_req_bytes = static_cast<uint64_t>(filtered_len) + kIdatChunkBytes;
         cand_sub.resize(filtered_len);
-        cand_paeth.resize(filtered_len);
         zbuf.resize(kIdatChunkBytes);
     } catch (const std::bad_alloc&) {
         out_status = EnhancerStatus::ERR_OUT_OF_MEMORY;
@@ -477,7 +462,8 @@ bool write_png_streaming_zlib(
     write_png_chunk(writer, "pHYs", phys, sizeof(phys));
 
     z_stream strm{};
-    const int init_rc = ::deflateInit2(&strm, 6, Z_DEFLATED, 15, 8, Z_FILTERED);
+    // Level 3 is still lossless; it reduces CPU time substantially for huge PNG rows.
+    const int init_rc = ::deflateInit2(&strm, 3, Z_DEFLATED, 15, 8, Z_FILTERED);
     if (init_rc != Z_OK) {
         if (init_rc == Z_MEM_ERROR) {
             out_status = EnhancerStatus::ERR_OUT_OF_MEMORY;
@@ -507,38 +493,16 @@ bool write_png_streaming_zlib(
 
     for (int y = 0; y < height; ++y) {
         const uint8_t* cur = rgb_data + static_cast<size_t>(y) * row_bytes;
-        const uint8_t* prev = (y > 0) ? (cur - row_bytes) : nullptr;
 
-        // Candidate 1: Filter 1 (Sub)
+        // Filter 1 (Sub) is fast, deterministic, and does not change PNG pixel quality.
         cand_sub[0] = 1u;
-        uint64_t score_sub = 0;
         for (size_t i = 0; i < row_bytes; ++i) {
             const uint8_t left = (i >= 3u) ? cur[i - 3u] : 0u;
-            const uint8_t d = static_cast<uint8_t>(cur[i] - left);
-            cand_sub[1u + i] = d;
-            score_sub += static_cast<uint64_t>(std::abs(static_cast<int>(static_cast<int8_t>(d))));
-        }
-
-        const uint8_t* chosen = cand_sub.data();
-        if (prev != nullptr) {
-            // Candidate 2: Filter 4 (Paeth) using previous row directly from `rgb_data`
-            cand_paeth[0] = 4u;
-            uint64_t score_paeth = 0;
-            for (size_t i = 0; i < row_bytes; ++i) {
-                const int a = (i >= 3u) ? cur[i - 3u] : 0;
-                const int b = prev[i];
-                const int c = (i >= 3u) ? prev[i - 3u] : 0;
-                const uint8_t d = static_cast<uint8_t>(cur[i] - paeth_predictor(a, b, c));
-                cand_paeth[1u + i] = d;
-                score_paeth += static_cast<uint64_t>(std::abs(static_cast<int>(static_cast<int8_t>(d))));
-            }
-            if (score_paeth < score_sub) {
-                chosen = cand_paeth.data();
-            }
+            cand_sub[1u + i] = static_cast<uint8_t>(cur[i] - left);
         }
 
         size_t rem = filtered_len;
-        const uint8_t* ptr = chosen;
+        const uint8_t* ptr = cand_sub.data();
         while (rem > 0) {
             const uInt chunk = static_cast<uInt>(std::min<size_t>(rem, 0x40000000u));
             strm.next_in = const_cast<Bytef*>(ptr);

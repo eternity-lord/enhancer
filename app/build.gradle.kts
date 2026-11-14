@@ -20,8 +20,8 @@ android {
         applicationId = "com.enhancer.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 3
-        versionName = "3.0"
+        versionCode = 4
+        versionName = "3.1"
 
         val configuredAbis = (project.findProperty("enhancerAbis") as? String)
             ?.split(",")
@@ -57,6 +57,9 @@ android {
 
     buildTypes {
         release {
+            // Make the public CI artifact installable without a private signing secret.
+            // Store distribution can replace this standard debug signature with a production key.
+            signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -135,11 +138,11 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
 
-tasks.matching { it.name == "assembleDebug" }.configureEach {
+tasks.matching { it.name == "assembleRelease" }.configureEach {
     doLast {
-        val debugApkDir = layout.buildDirectory.dir("outputs/apk/debug").get().asFile
-        val sourceApk = debugApkDir.resolve("app-debug.apk")
-        val renamedApk = debugApkDir.resolve("Enhancer-v3.0-debug.apk")
+        val releaseApkDir = layout.buildDirectory.dir("outputs/apk/release").get().asFile
+        val sourceApk = releaseApkDir.resolve("app-release.apk")
+        val renamedApk = releaseApkDir.resolve("Enhancer-v3.1-universal.apk")
         if (sourceApk.exists()) {
             sourceApk.copyTo(renamedApk, overwrite = true)
         }

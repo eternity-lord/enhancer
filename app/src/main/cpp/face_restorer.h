@@ -2,6 +2,7 @@
 #define ENHANCER_FACE_RESTORER_H
 
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -27,13 +28,16 @@ struct NormalizedFace {
     float lm_y[5] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 };
 
-// Detects faces + 5-point landmarks on compact work_rgb_buf using SCRFD-2.5G-KPS.
-// Runs lightweight 640px inference (< 8 MB scratch) BEFORE output frame allocation.
+// Detects faces + 5-point landmarks using SCRFD-2.5G-KPS.
+// Accepts either packed RGB888 or the locked Android RGBA8888 bitmap directly, avoiding an
+// intermediate full-frame RGB copy when no pre-SR effect needs one.
 std::vector<NormalizedFace> detect_faces_scrfd(
     AAssetManager* asset_manager,
-    const uint8_t* rgb,
+    const uint8_t* pixels,
     int width,
     int height,
+    size_t stride_bytes,
+    bool pixels_are_rgba,
     const std::string& fallback_models_dir = ""
 );
 

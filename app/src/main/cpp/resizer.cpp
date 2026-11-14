@@ -491,7 +491,6 @@ bool StreamingLanczos3Resizer::push_source_rows(
     }
 
     const size_t src_row_bytes = static_cast<size_t>(src_w_) * 3;
-    std::vector<const float*> active_hrows;
 
     for (int r = 0; r < row_count && pushed_src_rows_ < src_h_; ++r) {
         if ((r & 15) == 0 && cancel_flag.load(std::memory_order_relaxed)) {
@@ -524,17 +523,17 @@ bool StreamingLanczos3Resizer::push_source_rows(
                 return false;
             }
 
-            active_hrows.resize(static_cast<size_t>(yspan.count));
+            active_hrows_.resize(static_cast<size_t>(yspan.count));
             for (int k = 0; k < yspan.count; ++k) {
                 const int needed_sy = yspan.start_idx + k;
                 const int slot = needed_sy & (ring_slots_ - 1);
-                active_hrows[static_cast<size_t>(k)] =
+                active_hrows_[static_cast<size_t>(k)] =
                     row_ring_.data() + static_cast<size_t>(slot) * row_floats_;
             }
 
             const float* wy_ptr = y_weights_.data() + yspan.weight_offset;
             const int tap_count = yspan.count;
-            const float* const* hrows_ptr = active_hrows.data();
+            const float* const* hrows_ptr = active_hrows_.data();
             uint8_t* out_row = dst_rgb_ + static_cast<size_t>(next_dst_y_) * row_floats_;
 
             const ptrdiff_t rf_count = static_cast<ptrdiff_t>(row_floats_);

@@ -208,13 +208,15 @@ enum class TargetPreset(val targetLongSide: Int) {
     NATIVE(0),
     QHD_2K(2560),
     UHD_4K(3840),
-    UHD_8K(7680);
+    UHD_8K(7680),
+    UHD_16K(15360);
 
     fun fileSlug(modelScale: Int): String = when (this) {
         NATIVE -> "x$modelScale"
         QHD_2K -> "2K"
         UHD_4K -> "4K"
         UHD_8K -> "8K"
+        UHD_16K -> "16K"
     }
 }
 
@@ -255,13 +257,14 @@ data class EnhancerSettings(
     val denoiseStrength: Int = EnhanceModePreset.BALANCED.defaultDenoise, // 0..100
     val ultraIntensity: Int = 65, // 0..100 (Ultra mode)
     val ultraSize: Int = 45, // 0..100 (Ultra mode "Size of changes")
-    val maxQuality: Boolean = false,
+    // Detail-first default: full-resolution inference is preferred over the faster pre-downscale.
+    val maxQuality: Boolean = true,
     val ttaX8: Boolean = false,
     val safeMode: Boolean = false, // Legacy flag; UI uses unlocked forceCpu + applyLowRamPreset()
     val forceCpu: Boolean = false, // True = CPU Precision backend, False = Auto GPU (Vulkan + fallback)
     val sharpness: Int = EnhanceModePreset.BALANCED.defaultSharpness, // 0..100 (0 = off)
     val format: OutputFormat = OutputFormat.JPEG,
-    val jpegQuality: Int = 98, // 90..100, always 4:4:4 full chroma
+    val jpegQuality: Int = 100, // 90..100, always 4:4:4 full chroma
     val dpi: Int = 300, // Print-ready 300 DPI metadata
     val tileSize: TileSizeOption = TileSizeOption.AUTO,
     val disableFp16: Boolean = false,

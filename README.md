@@ -49,8 +49,12 @@
 .\enhancer-cli.exe -i photo.jpg -o photo_igpu.jpg --gpu integrated --tile 128
 ```
 
-### Android v3.0 Highlights (`Enhancer-v3.0-debug.apk`)
-- Universal offline Android package (`arm64-v8a`, `armeabi-v7a`, `x86_64`, Android 8.0+) with zero internet permission, featuring all 7 Studio modes, `SCRFD + CodeFormer` face restoration, `Light AI`, 8 SR models, full-resolution tiled deep-zoom comparison viewer, 4:4:4 JPEG + PNG 300 DPI export, foreground batch queue with thermal protection, and bilingual `English` / `فارسی` UI.
+### Android v3.1 Highlights (`Enhancer-v3.1-universal.apk`)
+- **Detail-first defaults**: new installs use full-resolution Max Quality inference with 32 px feathered overlaps, streaming Lanczos3, JPEG 100% 4:4:4 output, and lossless PNG when exact pixels are required. Existing explicit settings remain unchanged.
+- **Faster without quality shortcuts**: tile/compositor scratch is reused, duplicate JNI progress callbacks are coalesced, CPU/OpenMP scheduling is bounded to the selected ncnn worker pool, the streaming resizer reuses its row-window pointers, and PNG uses a faster lossless encoder path.
+- **Maximum-detail targets**: Native, 2K, 4K, 8K, and 16K Print Master (15360 px), with output buffers streamed/tiled to keep the APK and export footprint unconstrained up to the supported 2 GiB delivery limit.
+- Universal offline Android package (`arm64-v8a`, `armeabi-v7a`, `x86_64`, Android 8.0+) with zero internet permission, all 7 Studio modes, `SCRFD + CodeFormer` face restoration, `Light AI`, 8 SR models, full-resolution tiled deep-zoom comparison viewer, 300 DPI metadata, foreground batch queue with thermal protection, and bilingual `English` / `فارسی` UI.
+- Download the verified APK and SHA-256 file from the [Enhancer v3.1.0 Android release](https://github.com/eternity-lord/enhancer/releases/tag/v3.1.0).
 
 ---
 

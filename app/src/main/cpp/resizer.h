@@ -87,6 +87,9 @@ private:
     size_t row_floats_ = 0;
     std::vector<float> row_ring_;
     std::vector<int> slot_sy_;
+    // Reused pointer view for each vertical output window; avoiding one allocation per pushed band
+    // matters for Max Quality exports where the resizer is fed one tile row band at a time.
+    std::vector<const float*> active_hrows_;
 
     int pushed_src_rows_ = 0;
     int next_dst_y_ = 0;
