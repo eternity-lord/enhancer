@@ -103,7 +103,7 @@ fun MainScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Top Header + Version 2.0 + Offline Badge + Info Icon + Language Toggle
+            // Top Header + Version 3.2 + Offline Badge + Info Icon + Language Toggle
             item {
                 HeaderSection(
                     uiState = uiState,

@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   build:
-    name: Build Enhancer v3.1 Universal Release APK (arm64-v8a / armeabi-v7a / x86_64)
+    name: Build Enhancer v3.2 Universal Release APK (arm64-v8a / armeabi-v7a / x86_64)
     runs-on: ubuntu-latest
 
     steps:
@@ -20,7 +20,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/enhancer-build-deps
-          key: enhancer-deps-v3.1-ncnn20261020-cf-cfe0fe2d
+          key: enhancer-deps-v3.2-ncnn20261020-cf-cfe0fe2d
 
       - name: Prepare CodeFormer weights & multi-ABI ncnn
         run: |
@@ -76,10 +76,10 @@ jobs:
             exit 1
           fi
 
-      - name: Verify packaged neural models & ABIs in Enhancer-v3.1-universal.apk
+      - name: Verify packaged neural models & ABIs in Enhancer-v3.2-universal.apk
         run: |
           APK_DIR="app/build/outputs/apk/release"
-          TARGET_APK="$APK_DIR/Enhancer-v3.1-universal.apk"
+          TARGET_APK="$APK_DIR/Enhancer-v3.2-universal.apk"
           if [ ! -f "$TARGET_APK" ]; then
             FOUND_APK="$(find "$APK_DIR" -maxdepth 2 -name '*-release.apk' | head -n 1)"
             if [ -z "$FOUND_APK" ]; then
@@ -120,27 +120,27 @@ jobs:
             fi
           done
 
-      - name: Upload Enhancer-v3.1-universal artifact
+      - name: Upload Enhancer-v3.2-universal artifact
         uses: actions/upload-artifact@v7
         with:
-          name: Enhancer-v3.1-universal
+          name: Enhancer-v3.2-universal
           path: |
-            app/build/outputs/apk/release/Enhancer-v3.1-universal.apk
-            app/build/outputs/apk/release/Enhancer-v3.1-universal.apk.sha256
+            app/build/outputs/apk/release/Enhancer-v3.2-universal.apk
+            app/build/outputs/apk/release/Enhancer-v3.2-universal.apk.sha256
           if-no-files-found: error
 
-      - name: Attach Universal Android APK to GitHub Release v3.1.0 (on main)
+      - name: Attach Universal Android APK to GitHub Release v3.2.0 (on main)
         if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v3.1.0"
-          APK="app/build/outputs/apk/release/Enhancer-v3.1-universal.apk"
+          TAG="v3.2.0"
+          APK="app/build/outputs/apk/release/Enhancer-v3.2-universal.apk"
           SHA="${APK}.sha256"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK" "$SHA" --clobber
           else
             gh release create "$TAG" "$APK" "$SHA" \
-              --title "Enhancer v3.1 Studio Android (detail-first)" \
-              --notes "Enhancer v3.1 Android — offline detail-first exports with default Max Quality full-resolution inference, 4:4:4 JPEG 100%, lossless PNG, 16K Print Master target, tiled Vulkan/CPU execution, and automatic fallback across arm64-v8a, armeabi-v7a, and x86_64."
+              --title "Enhancer v3.2 Studio Android (detail-first)" \
+              --notes "Enhancer v3.2 Android — Ultra identity-safe detail-first exports with native Photo x4 output, Max Quality full-resolution inference, TTA x8 ensemble, conservative face residuals, 4:4:4 JPEG 100%, lossless PNG, 16K Print Master target, tiled Vulkan/CPU execution, and automatic fallback across arm64-v8a, armeabi-v7a, and x86_64."
           fi

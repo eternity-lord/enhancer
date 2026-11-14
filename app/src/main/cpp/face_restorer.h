@@ -43,8 +43,8 @@ std::vector<NormalizedFace> detect_faces_scrfd(
 
 // Restores detected faces in-place on upscaled `final_rgb` using sequential CodeFormer 512x512
 // encoder -> codebook argmax -> controllable SFT generator, Oklab skin/monochrome color matching,
-// runtime anti-gray/NaN verification (with automatic Vulkan -> CPU retry), and cosine-feathered
-// inverse-similarity paste-back. Returns number of successfully restored faces.
+// identity-safe residual limiting, runtime anti-gray/NaN verification (with automatic Vulkan -> CPU retry),
+// and cosine-feathered inverse-similarity paste-back. Returns number of successfully restored faces.
 int restore_faces_codeformer(
     AAssetManager* asset_manager,
     uint8_t* final_rgb,

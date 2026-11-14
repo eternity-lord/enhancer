@@ -59,7 +59,7 @@ enhancer::UpscaleConfig map_c_config(const EnhancerCJobConfig& j) {
     cfg.gpu_index = j.gpu_index;
     cfg.num_threads = j.num_threads;
     cfg.sharpness = std::clamp(static_cast<int>(j.sharpness), 0, 100);
-    const int mode_clamped = (j.enhance_mode >= 0 && j.enhance_mode <= 6) ? j.enhance_mode : 2;
+    const int mode_clamped = (j.enhance_mode >= 0 && j.enhance_mode <= 6) ? j.enhance_mode : 4;
     cfg.mode = static_cast<enhancer::EnhanceMode>(mode_clamped);
     cfg.enhance_faces = (j.enhance_faces != 0);
     cfg.face_strength = std::clamp(j.face_strength, 0.0f, 1.0f);

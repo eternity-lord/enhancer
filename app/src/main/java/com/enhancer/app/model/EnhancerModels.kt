@@ -168,13 +168,13 @@ enum class EnhanceModePreset(
         descriptionRes = R.string.mode_ultra_desc,
         defaultModel = UpscaleModel.PHOTO_X4,
         defaultFaces = true,
-        defaultFaceStrength = 75,
-        defaultLightAi = true,
-        defaultLightAiStrength = 50,
-        defaultDenoise = 15,
-        defaultSharpness = 20,
-        defaultUltraIntensity = 65,
-        defaultUltraSize = 45
+        defaultFaceStrength = 30,
+        defaultLightAi = false,
+        defaultLightAiStrength = 30,
+        defaultDenoise = 0,
+        defaultSharpness = 14,
+        defaultUltraIntensity = 78,
+        defaultUltraSize = 18
     ),
     DIGITAL_ART(
         nativeCode = 5,
@@ -247,22 +247,24 @@ enum class AppLanguageMode(val tag: String) {
 }
 
 data class EnhancerSettings(
-    val enhanceMode: EnhanceModePreset = EnhanceModePreset.BALANCED,
-    val model: UpscaleModel = EnhanceModePreset.BALANCED.defaultModel,
-    val target: TargetPreset = TargetPreset.UHD_4K,
-    val enhanceFaces: Boolean = EnhanceModePreset.BALANCED.defaultFaces,
-    val faceStrength: Int = EnhanceModePreset.BALANCED.defaultFaceStrength, // 0..100
-    val lightAi: Boolean = EnhanceModePreset.BALANCED.defaultLightAi,
-    val lightAiStrength: Int = EnhanceModePreset.BALANCED.defaultLightAiStrength, // 0..100
-    val denoiseStrength: Int = EnhanceModePreset.BALANCED.defaultDenoise, // 0..100
-    val ultraIntensity: Int = 65, // 0..100 (Ultra mode)
-    val ultraSize: Int = 45, // 0..100 (Ultra mode "Size of changes")
+    // New installs start with the reference-quality profile: Photo x4, native output, TTA x8,
+    // and conservative face identity protection. Existing saved settings are loaded unchanged.
+    val enhanceMode: EnhanceModePreset = EnhanceModePreset.ULTRA,
+    val model: UpscaleModel = EnhanceModePreset.ULTRA.defaultModel,
+    val target: TargetPreset = TargetPreset.NATIVE,
+    val enhanceFaces: Boolean = EnhanceModePreset.ULTRA.defaultFaces,
+    val faceStrength: Int = EnhanceModePreset.ULTRA.defaultFaceStrength, // 0..100
+    val lightAi: Boolean = EnhanceModePreset.ULTRA.defaultLightAi,
+    val lightAiStrength: Int = EnhanceModePreset.ULTRA.defaultLightAiStrength, // 0..100
+    val denoiseStrength: Int = EnhanceModePreset.ULTRA.defaultDenoise, // 0..100
+    val ultraIntensity: Int = 78, // 0..100 (Ultra mode)
+    val ultraSize: Int = 18, // 0..100 (Ultra mode "Size of changes")
     // Detail-first default: full-resolution inference is preferred over the faster pre-downscale.
     val maxQuality: Boolean = true,
-    val ttaX8: Boolean = false,
+    val ttaX8: Boolean = true,
     val safeMode: Boolean = false, // Legacy flag; UI uses unlocked forceCpu + applyLowRamPreset()
     val forceCpu: Boolean = false, // True = CPU Precision backend, False = Auto GPU (Vulkan + fallback)
-    val sharpness: Int = EnhanceModePreset.BALANCED.defaultSharpness, // 0..100 (0 = off)
+    val sharpness: Int = EnhanceModePreset.ULTRA.defaultSharpness, // 0..100 (0 = off)
     val format: OutputFormat = OutputFormat.JPEG,
     val jpegQuality: Int = 100, // 90..100, always 4:4:4 full chroma
     val dpi: Int = 300, // Print-ready 300 DPI metadata
@@ -323,7 +325,7 @@ fun computeResolutionPlan(
     srcHeight: Int,
     model: UpscaleModel,
     target: TargetPreset,
-    maxQuality: Boolean = false
+    maxQuality: Boolean = true
 ): ResolutionPlan {
     if (srcWidth <= 0 || srcHeight <= 0) {
         return ResolutionPlan(

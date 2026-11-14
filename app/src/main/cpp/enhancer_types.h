@@ -126,7 +126,7 @@ enum class ImageFormat : int {
 
 // Let's Enhance (letsenhance.io) 7 AI Enhancement Modes
 enum class EnhanceMode : int {
-    PRIME = 0,       // Natural fidelity for portraits & photography (default)
+    PRIME = 0,       // Natural fidelity for portraits & photography
     GENTLE = 1,      // Smart Resize: minimal modification for text, logos, clean shots
     BALANCED = 2,    // Everyday smartphone, travel & web photos
     STRONG = 3,      // Heavy deblur, denoise & JPEG recovery for degraded inputs
@@ -190,21 +190,21 @@ struct UpscaleConfig {
     int target_long_side = 0;      // 0 = Native xN, 2560 = 2K, 3840 = 4K, 7680 = 8K, 15360 = 16K
     int requested_tile_size = 200; // <= 0 means default 200; minimum 48
     bool disable_fp16 = false;
-    bool max_quality = false;      // Native API default OFF; Android detail-first profile enables it
-    bool tta_x8 = false;           // Default OFF: 8x flip/rotate Test-Time Augmentation
+    bool max_quality = true;       // Detail-first native default: full-resolution inference + feathered tiles
+    bool tta_x8 = true;            // Detail-first native default: 8x flip/rotate Test-Time Augmentation
     bool safe_mode = false;        // Default OFF: forces CPU + tile 64 + no Max quality + no TTA
     bool force_cpu = false;        // Forces CPU backend without overriding tile size unless safe_mode
     int gpu_index = -1;            // -1 = Auto (Discrete -> Integrated), 0..N-1 = explicit Vulkan GPU
     int num_threads = 0;           // 0 = Auto optimal CPU threads, > 0 = explicit OpenMP thread count
-    int sharpness = 0;             // 0..100 adaptive halo-clamped unsharp mask
-    EnhanceMode mode = EnhanceMode::PRIME;
-    bool enhance_faces = true;     // Photo 2.0 Faces: SCRFD 5pt + CodeFormer blind face restoration
-    float face_strength = 0.70f;   // 0.0..1.0 face restoration strength & CodeFormer fidelity balance
-    bool light_ai = false;         // Light AI: Smart HDR shadow/highlight, clarity & AWB/vibrance
-    float light_ai_strength = 0.45f; // 0.0..1.0 Light AI strength
-    float denoise_strength = 0.18f;  // 0.0..1.0 pre-SR JPEG deblocking & bilateral noise cleanup
-    float ultra_intensity = 0.65f;   // 0.0..1.0 Ultra mode micro-detail intensity
-    float ultra_size = 0.45f;        // 0.0..1.0 Ultra mode multi-scale Laplacian radius ("Size of changes")
+    int sharpness = 14;            // Detail-first adaptive halo-clamped unsharp mask
+    EnhanceMode mode = EnhanceMode::ULTRA;
+    bool enhance_faces = true;     // Identity-safe SCRFD + conservative CodeFormer face detail
+    float face_strength = 0.30f;   // 0.0..1.0 face detail strength with geometry-preserving residual clamp
+    bool light_ai = false;          // Light AI: Smart HDR shadow/highlight, clarity & AWB/vibrance
+    float light_ai_strength = 0.30f; // 0.0..1.0 Light AI strength
+    float denoise_strength = 0.0f;  // 0.0..1.0 pre-SR JPEG deblocking & bilateral noise cleanup
+    float ultra_intensity = 0.78f;  // 0.0..1.0 Ultra mode micro-detail intensity
+    float ultra_size = 0.18f;       // 0.0..1.0 Ultra mode multi-scale Laplacian radius ("Size of changes")
     int dpi = 300;                 // Print-ready DPI metadata (default 300 DPI)
     ImageFormat format = ImageFormat::JPEG;
     int jpeg_quality = 100;        // 90..100 (default 100), always 4:4:4 full chroma

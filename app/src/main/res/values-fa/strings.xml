@@ -48,8 +48,8 @@
     <string name="ultra_size_desc">۰٪ = بافت بسیار ریز پوست و پارچه • ۵۰٪ = میانی • ۱۰۰٪ = ساختار درشت</string>
 
     <!-- Companion AI Engines: Enhance Faces & Light AI -->
-    <string name="label_enhance_faces">ترمیم هوشمند چهره (Enhance Faces 2.0)</string>
-    <string name="enhance_faces_desc">تراز ۵ نقطه‌ای + مدل CodeFormer 512×512 برای وضوح چشم، مژه و پوست (ایمن برای سیاه‌وسفید)</string>
+    <string name="label_enhance_faces">جزئیات چهره با حفظ هویت (Enhance Faces 2.0)</string>
+    <string name="enhance_faces_desc">تراز ۵ نقطه‌ای + باقیمانده محافظه‌کارانه CodeFormer برای جزئیات چشم، مژه و پوست بدون بازطراحی هندسه چهره</string>
     <string name="label_face_strength">قدرت ترمیم چهره: %1$d%%</string>
 
     <string name="label_light_ai">اصلاح نور و رنگ هوشمند (Light AI HDR)</string>
@@ -198,11 +198,11 @@
     <string name="about_content_desc">درباره Enhancer</string>
     <string name="about_title">درباره Enhancer</string>
     <string name="about_description" formatted="false">استودیو ۱۰۰٪ آفلاین ارتقای کیفیت، ترمیم چهره و بهبود نور تصاویر در اندروید با قدرت Real-ESRGAN، CodeFormer، SCRFD، Light AI، موتور ncnn و شتاب‌دهنده Vulkan.</string>
-    <string name="about_whats_new_title">قابلیت‌های جدید نسخه ۳.۱</string>
+    <string name="about_whats_new_title">قابلیت‌های جدید نسخه ۳.۲</string>
     <string name="about_whats_new_1">۷ حالت استودیویی هوش مصنوعی: Prime، Gentle، Balanced، Strong، Ultra (با کنترل شدت و اندازه جزئیات)، Digital Art و Old Photo</string>
-    <string name="about_whats_new_2">ترمیم تخصصی چهره (Enhance Faces 2.0): تشخیص ۵ نقطه‌ای SCRFD + مدل CodeFormer 512×512 برای احیای چشم، مژه و پوست با حفظ عکس‌های سیاه‌وسفید</string>
+    <string name="about_whats_new_2">ترمیم تخصصی چهره (Enhance Faces 2.0): SCRFD پنج‌نقطه‌ای + جزئیات محافظه‌کارانه CodeFormer با قفل هندسه چهره برای چشم، مژه و پوست</string>
     <string name="about_whats_new_3">موتور Light AI (Smart HDR): بازیابی بدون هاله سایه‌ها، اصلاح نقاط پرنور، تراز سفیدی هوشمند و طراوت طبیعی رنگ‌ها</string>
-    <string name="about_whats_new_4">پیش‌فرض حداکثر کیفیت با جزئیات کامل، زمان‌بندی سریع‌تر کاشی‌ها، JPEG ۱۰۰٪ با رنگ 4:4:4، هدف مستر چاپ 16K، سامانه ضدخاکستری Vulkan و APK چندمعماری</string>
+    <string name="about_whats_new_4">پروفایل Ultra با قفل هویت چهره، خروجی اصلی x4، میانگین‌گیری TTA x8، بازسازی بافت ریز، JPEG ۱۰۰٪ با رنگ 4:4:4، هدف مستر چاپ 16K و APK چندمعماری</string>
     <string name="about_oss_title">کتابخانه‌های متن‌باز</string>
     <string name="oss_realesrgan">Real-ESRGAN &amp; LSDIR — مجوز BSD 3-Clause</string>
     <string name="oss_codeformer">CodeFormer &amp; InsightFace SCRFD — مجوز S-Lab / MIT</string>

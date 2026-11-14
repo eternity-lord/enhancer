@@ -728,7 +728,7 @@ Java_com_enhancer_app_nativebridge_NativeEnhancer_nativeUpscaleImage(
         cfg.sharpness = static_cast<int>(sharpness);
         const int clamped_mode = (enhance_mode >= 0 && enhance_mode <= 6)
             ? static_cast<int>(enhance_mode)
-            : static_cast<int>(enhancer::EnhanceMode::BALANCED);
+            : static_cast<int>(enhancer::EnhanceMode::ULTRA);
         cfg.mode = static_cast<enhancer::EnhanceMode>(clamped_mode);
         cfg.enhance_faces = (enhance_faces == JNI_TRUE);
         cfg.face_strength = static_cast<float>(face_strength);

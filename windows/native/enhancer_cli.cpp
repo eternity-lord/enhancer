@@ -97,34 +97,36 @@ void ENHANCER_CALL cli_progress_cb(int32_t pct, const char* backend, int32_t til
 
 void print_usage() {
     std::printf(
-        "Enhancer v3.0.1 Studio CLI (Windows / Cross-Platform — Vulkan GPU + Multi-Core CPU)\n"
-        "Built by Mohammad Irani | 100%% Offline AI Super-Resolution, Face Restore & Light AI\n\n"
+        "Enhancer v3.2 Studio CLI (Windows / Cross-Platform — Vulkan GPU + Multi-Core CPU)\n"
+        "Built by Mohammad Irani | 100%% Offline AI Super-Resolution, Identity-Safe Face Detail & Light AI\n\n"
         "Usage:\n"
         "  enhancer-cli --diag [--models-dir <dir>]\n"
         "  enhancer-cli --self-test [--models-dir <dir>]\n"
         "  enhancer-cli --seam-test [--models-dir <dir>]\n"
         "  enhancer-cli -i <input.jpg> -o <output.jpg> [options]\n\n"
         "Options:\n"
-        "  --mode <prime|gentle|balanced|strong|ultra|digital-art|old-photo>  (default: balanced)\n"
+        "  --mode <prime|gentle|balanced|strong|ultra|digital-art|old-photo>  (default: ultra)\n"
         "  --model <photo-x4|general-v3|general-wdn|lsdir-x4|anime-x4|compact-x2|compact-x3|compact-x4>\n"
-        "  --target <native|2k|4k|8k|16k>                                     (default: 4k)\n"
-        "  --faces <0|1>               Enable SCRFD + CodeFormer 512x512      (default: mode preset)\n"
-        "  --face-strength <0..100>    Face restoration strength              (default: 70)\n"
+        "  --target <native|2k|4k|8k|16k>                                     (default: native x4)\n"
+        "  --faces <0|1>               Identity-safe SCRFD + CodeFormer detail (default: mode preset)\n"
+        "  --face-strength <0..100>    Conservative face detail strength        (default: 30)\n"
         "  --light-ai <0|1>            Enable Smart HDR Light AI              (default: mode preset)\n"
-        "  --light-strength <0..100>   Light AI strength                      (default: 45)\n"
+        "  --light-strength <0..100>   Light AI strength                      (default: 30)\n"
         "  --denoise <0..100>          Pre-SR JPEG deblock & denoise          (default: mode preset)\n"
-        "  --ultra-intensity <0..100>  Ultra mode multi-scale intensity       (default: 65)\n"
-        "  --ultra-size <0..100>       Ultra mode Size of Changes             (default: 45)\n"
-        "  --sharpness <0..100>        Adaptive edge sharpness                (default: 12)\n"
-        "  --max-quality               Enable full-res supersampling + 32px feather\n"
-        "  --tta                       Enable 8x Test-Time Augmentation\n"
+        "  --ultra-intensity <0..100>  Ultra mode multi-scale intensity       (default: 78)\n"
+        "  --ultra-size <0..100>       Ultra mode Size of Changes             (default: 18)\n"
+        "  --sharpness <0..100>        Adaptive edge sharpness                (default: 14)\n"
+        "  --max-quality               Enable full-res supersampling + 32px feather (default profile)\n"
+        "  --no-max-quality            Disable full-res Max Quality for a faster standard pass\n"
+        "  --tta                       Enable 8x Test-Time Augmentation (default profile)\n"
+        "  --no-tta                    Disable TTA x8 ensemble for a faster single pass\n"
         "  --cpu                       Force Multi-Core CPU Precision backend (no GPU required)\n"
         "  --gpu <auto|integrated|discrete|0|1|...>  Select Vulkan GPU; auto = discrete then onboard iGPU\n"
         "  --threads <0..64>           CPU OpenMP thread count (0 = auto)\n"
         "  --tile <0|64|128|192|256|384|512>  Tile size in px (0 = auto)\n"
         "  --fp32                      Force 32-bit storage on Vulkan\n"
         "  --format <jpg|png>          Output format (default: inferred from -o or jpg)\n"
-        "  --quality <90..100>         4:4:4 JPEG quality (default: 98)\n"
+        "  --quality <90..100>         4:4:4 JPEG quality (default: 100)\n"
         "  --dpi <72..1200>            Print DPI metadata (default: 300)\n"
         "  --models-dir <dir>          Directory containing neural model files\n"
     );
@@ -143,26 +145,26 @@ int run_cli_utf8(const std::vector<std::string>& args) {
     bool do_self_test = false;
     bool do_seam_test = false;
 
-    int mode_code = 2; // Balanced
-    std::string model_slug = "general-v3";
+    int mode_code = 4; // Ultra identity-safe detail profile
+    std::string model_slug = "photo-x4";
     bool user_set_model = false;
     int faces_on = 1;
     bool user_set_faces = false;
-    int face_strength = 70;
-    int light_ai_on = 1;
+    int face_strength = 30;
+    int light_ai_on = 0;
     bool user_set_light = false;
-    int light_strength = 45;
-    int denoise = 18;
+    int light_strength = 30;
+    int denoise = 0;
     bool user_set_denoise = false;
-    int sharpness = 12;
+    int sharpness = 14;
     bool user_set_sharpness = false;
-    int ultra_intensity = 65;
-    int ultra_size = 45;
-    int target_long = 3840;
+    int ultra_intensity = 78;
+    int ultra_size = 18;
+    int target_long = 0;
     int tile_size = 0;
     int disable_fp16 = 0;
-    int max_quality = 0;
-    int tta_x8 = 0;
+    int max_quality = 1;
+    int tta_x8 = 1;
     int force_cpu = 0;
     int gpu_index = -1;
     bool prefer_integrated_gpu = false;
@@ -170,7 +172,7 @@ int run_cli_utf8(const std::vector<std::string>& args) {
     int num_threads = 0;
     int dpi = 300;
     int format_code = -1;
-    int jpeg_quality = 98;
+    int jpeg_quality = 100;
 
     for (size_t i = 1; i < args.size(); ++i) {
         const std::string& a = args[i];
@@ -199,7 +201,7 @@ int run_cli_utf8(const std::vector<std::string>& args) {
             else if (m == "gentle") { mode_code = 1; if (!user_set_model) model_slug = "lsdir-x4"; if (!user_set_faces) faces_on = 0; if (!user_set_light) light_ai_on = 0; if (!user_set_denoise) denoise = 0; if (!user_set_sharpness) sharpness = 5; }
             else if (m == "balanced") { mode_code = 2; if (!user_set_model) model_slug = "general-v3"; if (!user_set_faces) faces_on = 1; if (!user_set_light) light_ai_on = 1; if (!user_set_denoise) denoise = 18; if (!user_set_sharpness) sharpness = 12; }
             else if (m == "strong") { mode_code = 3; if (!user_set_model) model_slug = "general-wdn"; if (!user_set_faces) faces_on = 1; if (!user_set_light) light_ai_on = 1; if (!user_set_denoise) denoise = 60; if (!user_set_sharpness) sharpness = 18; }
-            else if (m == "ultra") { mode_code = 4; if (!user_set_model) model_slug = "photo-x4"; if (!user_set_faces) faces_on = 1; if (!user_set_light) light_ai_on = 1; if (!user_set_denoise) denoise = 15; if (!user_set_sharpness) sharpness = 20; }
+            else if (m == "ultra") { mode_code = 4; if (!user_set_model) model_slug = "photo-x4"; if (!user_set_faces) faces_on = 1; if (!user_set_light) light_ai_on = 0; if (!user_set_denoise) denoise = 0; if (!user_set_sharpness) sharpness = 14; }
             else if (m == "digital-art") { mode_code = 5; if (!user_set_model) model_slug = "anime-x4"; if (!user_set_faces) faces_on = 0; if (!user_set_light) light_ai_on = 0; if (!user_set_denoise) denoise = 12; if (!user_set_sharpness) sharpness = 14; }
             else if (m == "old-photo") { mode_code = 6; if (!user_set_model) model_slug = "photo-x4"; if (!user_set_faces) faces_on = 1; if (!user_set_light) light_ai_on = 1; if (!user_set_denoise) denoise = 35; if (!user_set_sharpness) sharpness = 10; }
         } else if (a == "--model") {
@@ -235,8 +237,12 @@ int run_cli_utf8(const std::vector<std::string>& args) {
             user_set_sharpness = true;
         } else if (a == "--max-quality") {
             max_quality = 1;
+        } else if (a == "--no-max-quality") {
+            max_quality = 0;
         } else if (a == "--tta") {
             tta_x8 = 1;
+        } else if (a == "--no-tta") {
+            tta_x8 = 0;
         } else if (a == "--cpu") {
             force_cpu = 1;
         } else if (a == "--gpu") {
@@ -285,7 +291,7 @@ int run_cli_utf8(const std::vector<std::string>& args) {
         EnhancerCGpuInfo gpus[16]{};
         const int32_t gpu_count = enhancer_enumerate_gpus(gpus, 16);
 
-        std::printf("=== Enhancer v3.0.1 Hardware & Engine Diagnostics ===\n");
+        std::printf("=== Enhancer v3.2.0 Hardware & Engine Diagnostics ===\n");
         std::printf("Models Directory : %s\n", models_dir.c_str());
         std::printf("System Memory    : %d MB available / %d MB total\n", avail_mb, total_mb);
         std::printf("CPU Logical Cores: %d total (%d performance)\n", total_cores, big_cores);

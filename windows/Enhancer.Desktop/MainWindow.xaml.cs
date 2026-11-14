@@ -28,7 +28,7 @@ public partial class MainWindow : Window
     private bool _initializing = true;
     private bool _isProcessing;
     private bool _batchCancelRequested;
-    private EnhanceModeKind _activeMode = EnhanceModeKind.Balanced;
+    private EnhanceModeKind _activeMode = EnhanceModeKind.Ultra;
 
     // Interactive Canvas Pan/Zoom/Split State
     private double _stageBaseWidth;
@@ -142,7 +142,7 @@ public partial class MainWindow : Window
 
         _activeMode = Enum.IsDefined(typeof(EnhanceModeKind), _prefs.EnhanceMode)
             ? (EnhanceModeKind)_prefs.EnhanceMode
-            : EnhanceModeKind.Balanced;
+            : EnhanceModeKind.Ultra;
 
         int modelIndex = SrModelOption.All
             .Select((m, idx) => (m, idx))
@@ -152,7 +152,7 @@ public partial class MainWindow : Window
         int targetIndex = TargetPresetOption.All
             .Select((t, idx) => (t, idx))
             .FirstOrDefault(x => x.t.LongSide == _prefs.TargetPresetLongSide).idx;
-        if (_prefs.TargetPresetLongSide != 0 && targetIndex == 0) targetIndex = 2; // 4K default
+        if (_prefs.TargetPresetLongSide != 0 && targetIndex == 0) targetIndex = 0; // Native is the detail-first fallback
         CmbTargetRes.SelectedIndex = targetIndex;
         TxtCustomLongSide.Text = Math.Clamp(_prefs.CustomLongSide, 256, 32768).ToString();
         PanelCustomLongSide.Visibility = TargetPresetOption.All[targetIndex].IsCustom
@@ -954,7 +954,7 @@ public partial class MainWindow : Window
                     MessageBox.Show(
                         this,
                         $"Enhancement failed for {item.FileName}:\n\n{outcome.ErrorDetail}",
-                        "Enhancer v3.0.1 Engine",
+                        "Enhancer v3.2 Engine",
                         MessageBoxButton.OK,
                         MessageBoxImage.Warning
                     );

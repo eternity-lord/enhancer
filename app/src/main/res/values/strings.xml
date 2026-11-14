@@ -48,8 +48,8 @@
     <string name="ultra_size_desc">0%% = fine pores &amp; weave • 50%% = medium detail • 100%% = bold structure</string>
 
     <!-- Companion AI Engines: Enhance Faces & Light AI -->
-    <string name="label_enhance_faces">Enhance Faces (Photo 2.0)</string>
-    <string name="enhance_faces_desc">5-point landmark alignment + CodeFormer 512×512 eye, iris &amp; skin restoration (B&amp;W safe)</string>
+    <string name="label_enhance_faces">Identity-Safe Face Detail (Photo 2.0)</string>
+    <string name="enhance_faces_desc">5-point alignment + conservative CodeFormer residual for eye, iris &amp; skin detail without redrawing facial geometry</string>
     <string name="label_face_strength">Face Restoration Strength: %1$d%%</string>
 
     <string name="label_light_ai">Light AI (Smart HDR)</string>
@@ -198,11 +198,11 @@
     <string name="about_content_desc">About Enhancer</string>
     <string name="about_title">About Enhancer</string>
     <string name="about_description" formatted="false">100% offline on-device AI photo enhancement &amp; super-resolution studio for Android powered by Real-ESRGAN, CodeFormer, SCRFD, Light AI, ncnn, and Vulkan GPU compute.</string>
-    <string name="about_whats_new_title">What\'s New in 3.1</string>
+    <string name="about_whats_new_title">What\'s New in 3.2</string>
     <string name="about_whats_new_1">7 Studio AI Modes: Prime, Gentle, Balanced, Strong, Ultra (with Intensity &amp; Size of Changes), Digital Art, and Old Photo</string>
-    <string name="about_whats_new_2">Enhance Faces (Photo 2.0): 5-point SCRFD landmark alignment + CodeFormer 512×512 eye, lash &amp; skin restoration with B&amp;W/sepia preservation</string>
+    <string name="about_whats_new_2">Enhance Faces (Photo 2.0): 5-point SCRFD + conservative CodeFormer residual detail with identity geometry lock and B&amp;W/sepia preservation</string>
     <string name="about_whats_new_3">Light AI (Smart HDR): halo-free Guided Filter shadow recovery, highlight roll-off, adaptive white balance &amp; natural vibrance</string>
-    <string name="about_whats_new_4">Detail-first Max Quality default, faster tiled scheduling, 4:4:4 JPEG 100%, 16K Print Master target, anti-gray Vulkan verifier, and universal multi-ABI APK</string>
+    <string name="about_whats_new_4">Ultra identity-safe detail profile, native x4 output, TTA x8 ensemble, micro-detail recovery, JPEG 100% 4:4:4, 16K Print Master target, and universal multi-ABI APK</string>
     <string name="about_oss_title">Open-source credits</string>
     <string name="oss_realesrgan">Real-ESRGAN &amp; LSDIR — BSD 3-Clause License</string>
     <string name="oss_codeformer">CodeFormer &amp; InsightFace SCRFD — S-Lab / MIT License</string>
