@@ -64,8 +64,10 @@
     <!-- Neural SR Backbone chooser -->
     <string name="label_model">Neural SR Backbone</string>
     <string name="label_advanced_section">Advanced Engine &amp; Export Controls</string>
-    <string name="model_photo">Photo Pro 4× (Real-ESRGAN x4plus)</string>
-    <string name="model_photo_desc">Deep 23-RRDB photographic detail engine for portraits &amp; nature (4×)</string>
+    <string name="model_photo">Photo Pro 4× (LSDIR — Natural Detail)</string>
+    <string name="model_photo_desc">Quality-first photographic RRDBNet trained on LSDIR: natural faces, foliage, architecture and text (4×)</string>
+    <string name="model_real_esrgan">Real-ESRGAN Photo 4× (Conservative Fallback)</string>
+    <string name="model_real_esrgan_desc">Established photographic model with a softer, conservative texture profile (4×)</string>
     <string name="model_general_v3">General Photo 4× (RealESR-General v3)</string>
     <string name="model_general_v3_desc">Balanced natural photo upscaler with fast clean texture (4×)</string>
     <string name="model_general_wdn_v3">Denoise Photo 4× (RealESR-WDN v3)</string>
@@ -197,14 +199,16 @@
     <!-- About / Info Screen -->
     <string name="about_content_desc">About Enhancer</string>
     <string name="about_title">About Enhancer</string>
-    <string name="about_description" formatted="false">100% offline on-device AI photo enhancement &amp; super-resolution studio for Android powered by Real-ESRGAN, CodeFormer, SCRFD, Light AI, ncnn, and Vulkan GPU compute.</string>
+    <string name="about_description" formatted="false">100% offline on-device AI photo enhancement &amp; super-resolution studio for Android powered by LSDIR, Real-ESRGAN, CodeFormer, SCRFD, Light AI, ncnn, and Vulkan GPU compute.</string>
     <string name="about_whats_new_title">What\'s New in 3.2</string>
     <string name="about_whats_new_1">7 Studio AI Modes: Prime, Gentle, Balanced, Strong, Ultra (with Intensity &amp; Size of Changes), Digital Art, and Old Photo</string>
     <string name="about_whats_new_2">Enhance Faces (Photo 2.0): 5-point SCRFD + conservative CodeFormer residual detail with identity geometry lock and B&amp;W/sepia preservation</string>
     <string name="about_whats_new_3">Light AI (Smart HDR): halo-free Guided Filter shadow recovery, highlight roll-off, adaptive white balance &amp; natural vibrance</string>
     <string name="about_whats_new_4">Ultra identity-safe detail profile, native x4 output, TTA x8 ensemble, micro-detail recovery, JPEG 100% 4:4:4, 16K Print Master target, and universal multi-ABI APK</string>
+    <string name="about_whats_new_5">Quality-first photographic SR backbone: 4xLSDIR for more natural detail in faces, foliage, architecture, and text, with Real-ESRGAN kept as a conservative fallback</string>
     <string name="about_oss_title">Open-source credits</string>
-    <string name="oss_realesrgan">Real-ESRGAN &amp; LSDIR — BSD 3-Clause License</string>
+    <string name="oss_realesrgan">Real-ESRGAN — BSD 3-Clause License</string>
+    <string name="oss_lsdir">4xLSDIR by Philip Hofmann / Phhofm — CC BY 4.0 License</string>
     <string name="oss_codeformer">CodeFormer &amp; InsightFace SCRFD — S-Lab / MIT License</string>
     <string name="oss_ncnn">Tencent ncnn (20261020) — BSD 3-Clause License</string>
     <string name="oss_stb">stb (stb_image / stb_image_write) — Public Domain / MIT License</string>
@@ -225,7 +229,7 @@
     <string name="diag_safe_mode_status">Compute Mode: %1$s</string>
     <string name="diag_state_on">CPU Precision</string>
     <string name="diag_state_off">Auto GPU (Vulkan + Fallback)</string>
-    <string name="diag_self_test_desc" formatted="false">Runs a synthetic 256×256 test image through realesrgan-x4plus once on Vulkan and once on CPU (tile = 64).</string>
+    <string name="diag_self_test_desc" formatted="false">Runs a synthetic 256×256 test image through LSDIR Photo x4 once on Vulkan and once on CPU (tile = 64).</string>
     <string name="btn_run_self_test">Run self-test</string>
     <string name="self_test_running">Running Vulkan &amp; CPU self-test…</string>
     <string name="self_test_busy_queue">Wait for the active queue to finish before running self-test.</string>

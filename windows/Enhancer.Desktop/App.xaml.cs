@@ -80,8 +80,8 @@ public partial class App : Application
             string outFile = Path.Combine(Path.GetTempPath(), $"enhancer_wpf_smoke_{Guid.NewGuid():N}.jpg");
             var req = new UpscaleJobRequest(
                 ModelsDirectory: modelsDir,
-                ParamRelativePath: "models/realesrgan-x4plus.param",
-                BinRelativePath: "models/realesrgan-x4plus.bin",
+                ParamRelativePath: "models/lsdir-photo-x4.param",
+                BinRelativePath: "models/lsdir-photo-x4.bin",
                 OutputFilePath: outFile,
                 ModelScale: 4,
                 TargetLongSide: 0,

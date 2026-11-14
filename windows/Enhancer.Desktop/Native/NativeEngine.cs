@@ -284,11 +284,13 @@ public static class NativeEngine
 
         foreach (string candidate in candidates)
         {
-            if (File.Exists(Path.Combine(candidate, "models", "realesrgan-x4plus.param")))
+            if (File.Exists(Path.Combine(candidate, "models", "lsdir-photo-x4.param")) ||
+                File.Exists(Path.Combine(candidate, "models", "realesrgan-x4plus.param")))
             {
                 return candidate;
             }
-            if (File.Exists(Path.Combine(candidate, "realesrgan-x4plus.param")))
+            if (File.Exists(Path.Combine(candidate, "lsdir-photo-x4.param")) ||
+                File.Exists(Path.Combine(candidate, "realesrgan-x4plus.param")))
             {
                 return candidate;
             }
