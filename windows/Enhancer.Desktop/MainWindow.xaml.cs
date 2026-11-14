@@ -78,15 +78,18 @@ public partial class MainWindow : Window
         if (gpus.Count > 0)
         {
             var primary = gpus.FirstOrDefault(g => g.IsRecommended) ?? gpus[0];
-            TxtHardwareBadge.Text = $"Vulkan GPU Ready • {primary.Name} ({primary.HeapBudgetMb} MB VRAM) + {threads}-Thread CPU";
+            string memoryKind = primary.DeviceType == 1 ? "shared memory" : "VRAM";
+            string primaryKind = primary.DeviceType == 1 ? "Integrated GPU" : primary.TypeLabel;
+            TxtHardwareBadge.Text = $"Vulkan {primaryKind} Ready • {primary.Name} ({primary.HeapBudgetMb} MB {memoryKind}) + {threads}-Thread CPU";
             HardwarePillBorder.Background = new SolidColorBrush(Color.FromRgb(15, 41, 34));
             HardwarePillBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(16, 185, 129));
             HardwareDot.Fill = new SolidColorBrush(Color.FromRgb(16, 185, 129));
 
-            _deviceOptions.Add(new ComputeDeviceOption(false, -1, $"Auto — Best GPU ({primary.Name}) with Smart CPU Fallback"));
+            _deviceOptions.Add(new ComputeDeviceOption(false, -1, $"Auto — Best GPU (Discrete → Integrated/onboard) with Smart CPU Fallback"));
             foreach (var g in gpus)
             {
-                _deviceOptions.Add(new ComputeDeviceOption(false, g.Index, $"[GPU {g.Index}] {g.Name} ({g.TypeLabel}, {g.HeapBudgetMb} MB)"));
+                string gMemoryKind = g.DeviceType == 1 ? "shared" : "VRAM";
+                _deviceOptions.Add(new ComputeDeviceOption(false, g.Index, $"[GPU {g.Index}] {g.Name} ({g.TypeLabel}, {g.HeapBudgetMb} MB {gMemoryKind})"));
             }
             _deviceOptions.Add(new ComputeDeviceOption(true, -1, $"Multi-Core CPU Only ({threads} Threads — FP32 High Precision)"));
         }
@@ -930,7 +933,9 @@ public partial class MainWindow : Window
                     string faceInfo = outcome.FacesRestored > 0 ? $" • {outcome.FacesRestored} Face(s) Restored" : "";
                     TxtStatusHeadline.Text =
                         $"Saved {Path.GetFileName(outPath)} ({outcome.OutWidth}×{outcome.OutHeight}, {jobReq.Dpi} DPI) in {sw.Elapsed.TotalSeconds:F1}s{faceInfo}";
-                    TxtTelemetryDetail.Text = outcome.BackendUsed;
+                    TxtTelemetryDetail.Text = string.IsNullOrWhiteSpace(outcome.FallbackSummary)
+                        ? outcome.BackendUsed
+                        : $"{outcome.BackendUsed} • {outcome.FallbackSummary}";
 
                     DisplayQueueItemOnCanvas(item);
                 }
@@ -949,7 +954,7 @@ public partial class MainWindow : Window
                     MessageBox.Show(
                         this,
                         $"Enhancement failed for {item.FileName}:\n\n{outcome.ErrorDetail}",
-                        "Enhancer v3.0 Engine",
+                        "Enhancer v3.0.1 Engine",
                         MessageBoxButton.OK,
                         MessageBoxImage.Warning
                     );

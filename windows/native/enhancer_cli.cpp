@@ -42,6 +42,17 @@ const ModelSpec* find_model(const std::string& slug) {
     return nullptr;
 }
 
+int find_vulkan_gpu_by_type(uint32_t requested_type) {
+    EnhancerCGpuInfo gpus[16]{};
+    const int32_t count = enhancer_enumerate_gpus(gpus, 16);
+    for (int32_t i = 0; i < std::min<int32_t>(count, 16); ++i) {
+        if (gpus[i].type == requested_type) {
+            return gpus[i].index;
+        }
+    }
+    return -1;
+}
+
 std::string detect_default_models_dir(const std::string& exe_path_utf8) {
     std::filesystem::path exe_dir;
     try {
@@ -86,7 +97,7 @@ void ENHANCER_CALL cli_progress_cb(int32_t pct, const char* backend, int32_t til
 
 void print_usage() {
     std::printf(
-        "Enhancer v3.0 Studio CLI (Windows / Cross-Platform — Vulkan GPU + Multi-Core CPU)\n"
+        "Enhancer v3.0.1 Studio CLI (Windows / Cross-Platform — Vulkan GPU + Multi-Core CPU)\n"
         "Built by Mohammad Irani | 100%% Offline AI Super-Resolution, Face Restore & Light AI\n\n"
         "Usage:\n"
         "  enhancer-cli --diag [--models-dir <dir>]\n"
@@ -108,7 +119,7 @@ void print_usage() {
         "  --max-quality               Enable full-res supersampling + 32px feather\n"
         "  --tta                       Enable 8x Test-Time Augmentation\n"
         "  --cpu                       Force Multi-Core CPU Precision backend (no GPU required)\n"
-        "  --gpu <auto|0|1|...>        Select Vulkan GPU index (default: auto best discrete GPU)\n"
+        "  --gpu <auto|integrated|discrete|0|1|...>  Select Vulkan GPU; auto = discrete then onboard iGPU\n"
         "  --threads <0..64>           CPU OpenMP thread count (0 = auto)\n"
         "  --tile <0|64|128|192|256|384|512>  Tile size in px (0 = auto)\n"
         "  --fp32                      Force 32-bit storage on Vulkan\n"
@@ -154,6 +165,8 @@ int run_cli_utf8(const std::vector<std::string>& args) {
     int tta_x8 = 0;
     int force_cpu = 0;
     int gpu_index = -1;
+    bool prefer_integrated_gpu = false;
+    bool prefer_discrete_gpu = false;
     int num_threads = 0;
     int dpi = 300;
     int format_code = -1;
@@ -228,7 +241,24 @@ int run_cli_utf8(const std::vector<std::string>& args) {
             force_cpu = 1;
         } else if (a == "--gpu") {
             const std::string g = next_val();
-            gpu_index = (g == "auto") ? -1 : std::atoi(g.c_str());
+            if (g == "auto") {
+                gpu_index = -1;
+                prefer_integrated_gpu = false;
+                prefer_discrete_gpu = false;
+            } else if (g == "integrated" || g == "igpu" || g == "onboard") {
+                prefer_integrated_gpu = true;
+                prefer_discrete_gpu = false;
+            } else if (g == "discrete" || g == "dgpu") {
+                prefer_discrete_gpu = true;
+                prefer_integrated_gpu = false;
+            } else {
+                gpu_index = std::atoi(g.c_str());
+                prefer_integrated_gpu = false;
+                prefer_discrete_gpu = false;
+            }
+        } else if (a == "--integrated" || a == "--igpu" || a == "--onboard") {
+            prefer_integrated_gpu = true;
+            prefer_discrete_gpu = false;
         } else if (a == "--threads") {
             num_threads = std::clamp(std::atoi(next_val().c_str()), 0, 64);
         } else if (a == "--tile") {
@@ -255,7 +285,7 @@ int run_cli_utf8(const std::vector<std::string>& args) {
         EnhancerCGpuInfo gpus[16]{};
         const int32_t gpu_count = enhancer_enumerate_gpus(gpus, 16);
 
-        std::printf("=== Enhancer v3.0 Hardware & Engine Diagnostics ===\n");
+        std::printf("=== Enhancer v3.0.1 Hardware & Engine Diagnostics ===\n");
         std::printf("Models Directory : %s\n", models_dir.c_str());
         std::printf("System Memory    : %d MB available / %d MB total\n", avail_mb, total_mb);
         std::printf("CPU Logical Cores: %d total (%d performance)\n", total_cores, big_cores);
@@ -316,6 +346,20 @@ int run_cli_utf8(const std::vector<std::string>& args) {
         std::printf("%s\n", tbl_buf.data());
         enhancer_shutdown();
         return (rc == 0 && overall_pass != 0) ? 0 : 1;
+    }
+
+    if (prefer_integrated_gpu || prefer_discrete_gpu) {
+        const uint32_t requested_type = prefer_integrated_gpu ? 1u : 0u;
+        gpu_index = find_vulkan_gpu_by_type(requested_type);
+        if (gpu_index < 0) {
+            const char* kind = prefer_integrated_gpu ? "integrated/onboard" : "discrete";
+            std::fprintf(
+                stderr,
+                "[Enhancer] No %s Vulkan GPU found; continuing with the multi-core CPU backend.\n",
+                kind
+            );
+            force_cpu = 1;
+        }
     }
 
     if (input_path.empty() || output_path.empty()) {
@@ -379,8 +423,11 @@ int run_cli_utf8(const std::vector<std::string>& args) {
         return 2;
     }
 
+    const std::string fallback_suffix = res.fallback_summary[0] != '\0'
+        ? (std::string(" | Fallbacks: ") + res.fallback_summary)
+        : std::string();
     std::printf(
-        "[DONE] %dx%d -> %dx%d (%d DPI) in %.2f s | Backend: %s | Faces: %d/%d | Saved: %s\n",
+        "[DONE] %dx%d -> %dx%d (%d DPI) in %.2f s | Backend: %s | Faces: %d/%d | Saved: %s%s\n",
         src_w,
         src_h,
         res.out_width,
@@ -390,7 +437,8 @@ int run_cli_utf8(const std::vector<std::string>& args) {
         res.backend_used,
         res.faces_restored,
         res.faces_detected,
-        output_path.c_str()
+        output_path.c_str(),
+        fallback_suffix.c_str()
     );
     enhancer_shutdown();
     return 0;
