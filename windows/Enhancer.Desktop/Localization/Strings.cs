@@ -23,7 +23,7 @@ public sealed class Strings : INotifyPropertyChanged
     public FlowDirection WindowFlow => _isPersian ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
     public string LangButtonLabel => _isPersian ? "English (EN)" : "فارسی (FA)";
 
-    public string AppTitle => _isPersian ? "Enhancer v3.0 Studio — نسخه ویندوز" : "Enhancer v3.0 Studio";
+    public string AppTitle => _isPersian ? "Enhancer v3.0.1 Studio — نسخه ویندوز" : "Enhancer v3.0.1 Studio";
     public string AppSubtitle => _isPersian
         ? "افزایش کیفیت هوش مصنوعی، بازسازی چهره CodeFormer و نورپردازی هوشمند — کاملاً آفلاین"
         : "Offline AI Super-Resolution, CodeFormer Face Restoration & Smart HDR — Windows x64";

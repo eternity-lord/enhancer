@@ -23,7 +23,7 @@ public partial class DiagnosticsWindow : Window
         var (availMb, totalMb) = NativeEngine.GetSystemMemoryMb();
         var gpus = NativeEngine.EnumerateGpus();
 
-        sb.AppendLine("=== Enhancer v3.0 Studio for Windows (x64) — Hardware Report ===");
+        sb.AppendLine("=== Enhancer v3.0.1 Studio for Windows (x64) — Hardware Report ===");
         sb.AppendLine($"Models Directory     : {_modelsDir}");
         sb.AppendLine($"System Physical RAM  : {availMb:N0} MB free / {totalMb:N0} MB total");
         sb.AppendLine($"CPU Logical Threads  : {threads} total ({big} performance cores)");
@@ -38,7 +38,12 @@ public partial class DiagnosticsWindow : Window
             foreach (var g in gpus)
             {
                 string rec = g.IsRecommended ? " [Auto-Selected Primary]" : "";
-                sb.AppendLine($"  [GPU {g.Index}]{rec} {g.Name} ({g.TypeLabel}, VRAM Budget: {g.HeapBudgetMb} MB, Vendor: 0x{g.VendorId:X4})");
+                string memoryKind = g.DeviceType == 1 ? "Shared Memory" : "VRAM";
+                sb.AppendLine($"  [GPU {g.Index}]{rec} {g.Name} ({g.TypeLabel}, {memoryKind} Budget: {g.HeapBudgetMb} MB, Vendor: 0x{g.VendorId:X4})");
+            }
+            if (gpus.Any(g => g.DeviceType == 1))
+            {
+                sb.AppendLine("  -> Integrated/onboard Vulkan graphics are supported; Auto mode prefers a valid discrete GPU and falls back to the iGPU, then CPU if its driver is unavailable.");
             }
         }
 

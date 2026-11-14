@@ -194,7 +194,7 @@ struct UpscaleConfig {
     bool tta_x8 = false;           // Default OFF: 8x flip/rotate Test-Time Augmentation
     bool safe_mode = false;        // Default OFF: forces CPU + tile 64 + no Max quality + no TTA
     bool force_cpu = false;        // Forces CPU backend without overriding tile size unless safe_mode
-    int gpu_index = -1;            // -1 = Auto Best GPU (prefers Discrete GPU), 0..N-1 = explicit GPU
+    int gpu_index = -1;            // -1 = Auto (Discrete -> Integrated), 0..N-1 = explicit Vulkan GPU
     int num_threads = 0;           // 0 = Auto optimal CPU threads, > 0 = explicit OpenMP thread count
     int sharpness = 0;             // 0..100 adaptive halo-clamped unsharp mask
     EnhanceMode mode = EnhanceMode::PRIME;

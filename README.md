@@ -1,4 +1,4 @@
-# Enhancer v3.0 Studio — Offline AI Image Upscaler, Face Restoration & Smart HDR (Windows x64 & Android)
+# Enhancer v3.0.1 Studio — Offline AI Image Upscaler, Face Restoration & Smart HDR (Windows x64 & Android)
 
 **Built by Mohammad Irani | ساخته شده توسط محمد ایرانی**
 
@@ -9,11 +9,11 @@
 ## English
 
 ### Overview
-**Enhancer v3.0 Studio** is a **100% offline** AI image super-resolution, portrait face restoration, and Smart HDR enhancement suite for **Windows 10/11 (x64)** and **Android (8.0+)** — powered by a shared high-precision **C++17 + ncnn** native engine. Every neural weight is bundled offline; zero photos ever leave your device.
+**Enhancer v3.0.1 Studio** is a **100% offline** AI image super-resolution, portrait face restoration, and Smart HDR enhancement suite for **Windows 10/11 (x64)** and **Android (8.0+)** — powered by a shared high-precision **C++17 + ncnn** native engine. Every neural weight is bundled offline; zero photos ever leave your device.
 
-### Windows v3.0 Highlights (`Enhancer.exe` + `enhancer-cli.exe`)
+### Windows v3.0.1 Highlights (`Enhancer.exe` + `enhancer-cli.exe`)
 - **Works on ALL Windows PCs — With OR Without a Graphics Card**:
-  - **Systems WITH a Graphics Card (NVIDIA, AMD, Intel)**: Hardware-accelerated **Vulkan GPU** compute (`SimpleVK` dynamic runtime loader), automatic **Discrete GPU** selection on dual-GPU laptops, GPU VRAM heap-budget auto-tiling, anti-gray output verification (`ERR_VULKAN_CORRUPTED`), and automatic `Vulkan FP16 ↔ Vulkan FP32 → CPU` fallback.
+  - **Systems WITH a Graphics Card (NVIDIA, AMD, Intel)**: Hardware-accelerated **Vulkan GPU** compute (`SimpleVK` dynamic runtime loader), automatic **Discrete GPU → Integrated/onboard GPU** selection on hybrid laptops, shared-memory-safe auto-tiling for Intel UHD/Iris and AMD iGPUs, anti-gray output verification (`ERR_VULKAN_CORRUPTED`), and automatic `Vulkan FP16 ↔ Vulkan FP32 → CPU` fallback. The Inspector and CLI also expose explicit integrated-GPU selection.
   - **Systems WITHOUT a Graphics Card (CPU-Only PCs, Office Laptops, VMs)**: Zero dependency on `vulkan-1.dll` at load time — automatically runs optimized **Multi-Core x86-64 CPU inference** (`OpenMP` + runtime `AVX-512` / `AVX2` / `FMA` / `SSE` dispatch) with configurable thread count.
 - **7 Studio Enhancement Modes (100% Unlocked Inspector)**:
   - `Prime`, `Gentle`, `Balanced`, `Strong`, `Ultra` (with **Ultra Detail Intensity** & **Size of Changes** multi-scale synthesis), `Digital Art`, and `Old Photo` — every slider and toggle stays unlocked so you can customize any preset freely.
@@ -28,8 +28,8 @@
   - Dark Studio interface with **Drag & Drop** (files & folders), **Batch Queue**, **Pan/Zoom (`Fit`, `100%`, `200%`, `400%`) Interactive Split Before/After Comparison**, **English & فارسی (RTL)** live toggle, **Hardware Diagnostics / Native Self-Test / Seam-Test**, plus **`enhancer-cli.exe`** for scripting and batch pipelines.
 
 ### Installing on Windows (10 / 11 x64)
-1. Download **`Enhancer-v3.0-Windows-x64-Setup.exe`** (one-click installer, no admin rights or prerequisites required — `.NET 8`, `VC++/OpenMP`, and all 20 neural model files are bundled) or **`Enhancer-v3.0-Windows-x64-Portable.zip`** from **Releases** or **GitHub Actions → Windows CI Build & Installer → Artifacts**.
-2. Launch **Enhancer v3.0 Studio**, drop any image or folder onto the window, select a Studio mode, and click **Enhance Selected**.
+1. Download **`Enhancer-v3.0.1-Windows-x64-Setup.exe`** (one-click installer, no admin rights or prerequisites required — `.NET 8`, `VC++/OpenMP`, and all 20 neural model files are bundled) or **`Enhancer-v3.0.1-Windows-x64-Portable.zip`** from **Releases** or **GitHub Actions → Windows CI Build & Installer → Artifacts**.
+2. Launch **Enhancer v3.0.1 Studio**, drop any image or folder onto the window, select a Studio mode, and click **Enhance Selected**.
 
 ### Command-Line Usage (`enhancer-cli.exe`)
 ```powershell
@@ -44,6 +44,9 @@
 
 # Force Multi-Core CPU mode on a PC without a GPU:
 .\enhancer-cli.exe -i photo.jpg -o photo_enhanced.jpg --cpu --threads 8
+
+# Use Intel/AMD integrated (onboard) Vulkan graphics explicitly when available:
+.\enhancer-cli.exe -i photo.jpg -o photo_igpu.jpg --gpu integrated --tile 128
 ```
 
 ### Android v3.0 Highlights (`Enhancer-v3.0-debug.apk`)
@@ -53,12 +56,12 @@
 
 ## فارسی
 
-### معرفی Enhancer v3.0 Studio (نسخه ویندوز و اندروید)
-**Enhancer نسخه ۳.۰** (**ساخته شده توسط محمد ایرانی**) یک استودیوی کامل و **۱۰۰٪ آفلاین** برای افزایش کیفیت و رزولوشن تصاویر، بازسازی تخصصی چهره با هوش مصنوعی و اصلاح نور هوشمند برای **ویندوز ۱۰ و ۱۱ (۶۴ بیتی)** و **اندروید** است. تمام شبکه‌های عصبی داخل برنامه قرار دارند و هیچ تصویری به اینترنت ارسال نمی‌شود.
+### معرفی Enhancer v3.0.1 Studio (نسخه ویندوز و اندروید)
+**Enhancer نسخه ۳.۰.۱** (**ساخته شده توسط محمد ایرانی**) یک استودیوی کامل و **۱۰۰٪ آفلاین** برای افزایش کیفیت و رزولوشن تصاویر، بازسازی تخصصی چهره با هوش مصنوعی و اصلاح نور هوشمند برای **ویندوز ۱۰ و ۱۱ (۶۴ بیتی)** و **اندروید** است. تمام شبکه‌های عصبی داخل برنامه قرار دارند و هیچ تصویری به اینترنت ارسال نمی‌شود.
 
 ### ویژگی‌های کلیدی نسخه ویندوز (`Enhancer.exe` و `enhancer-cli.exe`)
 - **اجرای کامل روی تمام رایانه‌ها — با کارت گرافیک و بدون کارت گرافیک**:
-  - **رایانه‌های دارای کارت گرافیک (NVIDIA، AMD، Intel)**: شتاب‌دهی سخت‌افزاری با **Vulkan GPU**، انتخاب خودکار کارت گرافیک مجزا (Discrete GPU) در لپ‌تاپ‌های دوگرافیکه، تنظیم هوشمند اندازه کاشی بر اساس حافظه گرافیک، و سیستم ضد تصویر خاکستری.
+  - **رایانه‌های دارای کارت گرافیک (NVIDIA، AMD، Intel)**: شتاب‌دهی سخت‌افزاری با **Vulkan GPU**، انتخاب خودکار کارت مجزا و در صورت نبودن/نامعتبر بودن آن استفاده از **گرافیک آنبورد (Integrated)**، تنظیم هوشمند کاشی بر اساس VRAM یا حافظه اشتراکی، و سیستم ضد تصویر خاکستری. از منوی Hardware و گزینه `--gpu integrated` هم می‌توان گرافیک آنبورد را مستقیم انتخاب کرد.
   - **رایانه‌های بدون کارت گرافیک (فقط CPU)**: بدون هیچ وابستگی اجباری به درایور گرافیک یا `vulkan-1.dll`؛ اجرای خودکار و بهینه روی **پردازنده چند‌هسته‌ای (Multi-Core CPU)** با دستورات برداری `AVX2 / AVX-512 / OpenMP` و امکان تنظیم تعداد هسته‌ها.
 - **۷ حالت هوش مصنوعی استودیویی بدون هیچ محدودیت قفل‌شده**:
   - شامل حالت‌های `Prime`، `Gentle`، `Balanced`، `Strong`، `Ultra` (مجهز به اسلایدرهای **شدت جزئیات** و **اندازه تغییرات**)، `Digital Art` و `Old Photo`.

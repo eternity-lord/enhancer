@@ -15,7 +15,7 @@ public partial class App : Application
         {
             MessageBox.Show(
                 $"Unexpected error:\n{args.Exception.Message}",
-                "Enhancer v3.0 Studio",
+                "Enhancer v3.0.1 Studio",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning
             );

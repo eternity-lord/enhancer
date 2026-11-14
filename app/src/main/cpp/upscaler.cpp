@@ -110,6 +110,14 @@ bool is_adreno_gpu(uint32_t vendor_id, const std::string& device_name) {
     return vendor_id == kQualcommVendorId || contains_case_insensitive(device_name, "adreno");
 }
 
+bool is_usable_vulkan_gpu_index(int gpu_index) noexcept {
+    if (gpu_index < 0 || gpu_index >= ncnn::get_gpu_count()) {
+        return false;
+    }
+    ncnn::VulkanDevice* dev = ncnn::get_gpu_device(gpu_index);
+    return dev != nullptr && dev->is_valid();
+}
+
 bool ensure_vulkan_ready(int* out_create_rc = nullptr) noexcept {
     std::lock_guard<std::mutex> lock(g_vulkan_mutex);
     if (!g_vulkan_init_attempted) {
@@ -125,21 +133,32 @@ bool ensure_vulkan_ready(int* out_create_rc = nullptr) noexcept {
     if (out_create_rc) {
         *out_create_rc = g_vulkan_create_rc;
     }
-    if (!g_vulkan_instance_created) {
+    if (!g_vulkan_instance_created || ncnn::get_gpu_count() <= 0) {
         return false;
     }
-    return ncnn::get_gpu_count() > 0 && ncnn::get_default_gpu_index() >= 0;
+
+    // A Vulkan loader can enumerate a physical device whose driver is present but whose
+    // logical device cannot be created (common with stale Intel/AMD hybrid-GPU drivers).
+    // Only advertise Vulkan as available when at least one physical device is actually usable;
+    // otherwise the caller goes straight to the CPU path instead of failing on the iGPU.
+    for (int i = 0; i < ncnn::get_gpu_count(); ++i) {
+        if (is_usable_vulkan_gpu_index(i)) {
+            return true;
+        }
+    }
+    return false;
 }
 
-// Selects either an explicit Vulkan GPU index or the best available GPU
-// (preferring Discrete GPUs `type() == 0` with largest VRAM heap over integrated/virtual GPUs).
+// Selects either an explicit Vulkan GPU index or the best usable GPU
+// (preferring Discrete GPUs `type() == 0`, then Integrated GPUs `type() == 1`,
+// then virtual/software devices, with the largest heap budget as the tie-breaker).
 int select_best_vulkan_gpu_index(int requested_gpu_index) noexcept {
     const int gcount = ncnn::get_gpu_count();
     if (gcount <= 0) {
         return -1;
     }
     if (requested_gpu_index >= 0 && requested_gpu_index < gcount) {
-        return requested_gpu_index;
+        return is_usable_vulkan_gpu_index(requested_gpu_index) ? requested_gpu_index : -1;
     }
 
     int best_idx = -1;
@@ -147,14 +166,17 @@ int select_best_vulkan_gpu_index(int requested_gpu_index) noexcept {
     uint32_t best_budget = 0;
 
     for (int i = 0; i < gcount; ++i) {
+        if (!is_usable_vulkan_gpu_index(i)) {
+            continue;
+        }
         const ncnn::GpuInfo& info = ncnn::get_gpu_info(i);
-        // Rank: 3 = Discrete GPU (type 0), 2 = Integrated GPU (type 1), 1 = Virtual (type 2), 0 = CPU/Software (type 3)
+        // Rank: 3 = Discrete GPU, 2 = Integrated GPU, 1 = Virtual GPU, 0 = CPU/Software.
         int rank = 0;
         switch (info.type()) {
-            case 0: rank = 3; break; // Discrete (NVIDIA RTX/GTX, AMD Radeon RX, Intel Arc)
-            case 1: rank = 2; break; // Integrated (Intel Iris/UHD, AMD Radeon iGPU)
+            case 0: rank = 3; break; // NVIDIA/AMD discrete or Intel Arc
+            case 1: rank = 2; break; // Intel UHD/Iris or AMD integrated graphics
             case 2: rank = 1; break; // Virtual GPU
-            default: rank = 0; break; // Software / LLVMpipe / SwiftShader
+            default: rank = 0; break; // Software device
         }
         ncnn::VulkanDevice* dev = ncnn::get_gpu_device(i);
         const uint32_t budget = (dev && dev->is_valid()) ? dev->get_heap_budget() : 0u;
@@ -165,10 +187,32 @@ int select_best_vulkan_gpu_index(int requested_gpu_index) noexcept {
         }
     }
 
-    if (best_idx >= 0) {
-        return best_idx;
+    return best_idx;
+}
+
+// Returns the best valid Vulkan device of a specific class. This is used when a hybrid
+// laptop's discrete driver fails at runtime: Auto mode gets one transparent retry on the
+// integrated/onboard GPU before the final CPU fallback.
+int select_vulkan_gpu_index_by_type(uint32_t requested_type, int exclude_index = -1) noexcept {
+    const int gcount = ncnn::get_gpu_count();
+    int best_idx = -1;
+    uint32_t best_budget = 0;
+    for (int i = 0; i < gcount; ++i) {
+        if (i == exclude_index || !is_usable_vulkan_gpu_index(i)) {
+            continue;
+        }
+        const ncnn::GpuInfo& info = ncnn::get_gpu_info(i);
+        if (static_cast<uint32_t>(std::clamp(info.type(), 0, 3)) != requested_type) {
+            continue;
+        }
+        ncnn::VulkanDevice* dev = ncnn::get_gpu_device(i);
+        const uint32_t budget = (dev && dev->is_valid()) ? dev->get_heap_budget() : 0u;
+        if (best_idx < 0 || budget > best_budget) {
+            best_idx = i;
+            best_budget = budget;
+        }
     }
-    return ncnn::get_default_gpu_index();
+    return best_idx;
 }
 
 uint64_t query_asset_size_bytes(
@@ -197,15 +241,19 @@ uint64_t query_asset_size_bytes(
 }
 
 // Queries `vkdev->get_heap_budget()` (MB) and caps initial tile size on low-VRAM GPUs.
+// Integrated graphics often report a zero budget because they share system memory; in that
+// case use a conservative tile so Intel UHD/Iris and AMD iGPUs can run reliably instead of
+// exhausting the shared graphics aperture. Explicit CPU mode is still available at all times.
 int choose_tile_for_gpu_budget(
     int requested_tile,
     uint32_t heap_budget_mb,
+    uint32_t gpu_type,
     bool max_quality,
     bool tta_x8
 ) noexcept {
     int tile = std::max(kMinTileSize, requested_tile);
     if (heap_budget_mb == 0) {
-        return tile;
+        return gpu_type == 1u ? std::min(tile, 128) : tile;
     }
     if (heap_budget_mb < 160u) {
         tile = std::min(tile, 64);
@@ -270,6 +318,8 @@ public:
     ) {
         release();
         use_vulkan_ = use_vulkan;
+        gpu_type_ = 3u;
+        gpu_index_ = -1;
         out_heap_budget_mb = 0;
 
         const int big_cores = ncnn::get_big_cpu_count();
@@ -342,14 +392,20 @@ public:
                     current_tile_size,
                     out_backend_label,
                     -1,
-                    "VulkanDevice null or invalid"
+                    "No usable Vulkan device (integrated GPU drivers may be missing or disabled)"
                 };
                 vkdev_ = nullptr;
                 return false;
             }
 
+            const ncnn::GpuInfo& gpu_info = ncnn::get_gpu_info(gpu_idx);
+            gpu_index_ = gpu_idx;
+            gpu_type_ = static_cast<uint32_t>(std::clamp(gpu_info.type(), 0, 3));
             const char* dev_name = vkdev_->info.device_name();
-            out_backend_label = std::string("Vulkan (") +
+            const char* type_name = (gpu_type_ == 0u) ? "Discrete" :
+                                    (gpu_type_ == 1u) ? "Integrated" :
+                                    (gpu_type_ == 2u) ? "Virtual" : "Software";
+            out_backend_label = std::string("Vulkan ") + type_name + " (" +
                 ((dev_name && dev_name[0] != '\0') ? dev_name : "GPU") + ")";
             out_heap_budget_mb = vkdev_->get_heap_budget();
 
@@ -503,10 +559,14 @@ public:
         blob_cpu_allocator_.clear();
         workspace_cpu_allocator_.clear();
         use_vulkan_ = false;
+        gpu_type_ = 3u;
+        gpu_index_ = -1;
     }
 
     ncnn::Net& net() noexcept { return net_; }
     bool using_vulkan() const noexcept { return use_vulkan_; }
+    int gpu_index() const noexcept { return gpu_index_; }
+    uint32_t gpu_type() const noexcept { return gpu_type_; }
     int cpu_threads() const noexcept { return cpu_threads_; }
     ncnn::VkAllocator* blob_vkallocator() const noexcept { return blob_vkallocator_; }
     ncnn::VkAllocator* staging_vkallocator() const noexcept { return staging_vkallocator_; }
@@ -523,6 +583,8 @@ private:
     ncnn::VkAllocator* blob_vkallocator_ = nullptr;
     ncnn::VkAllocator* staging_vkallocator_ = nullptr;
     bool use_vulkan_ = false;
+    int gpu_index_ = -1;
+    uint32_t gpu_type_ = 3u;
     int cpu_threads_ = 4;
     std::string input_blob_ = "data";
     std::string output_blob_ = "output";
@@ -1443,6 +1505,7 @@ UpscaleResult execute_pipeline_internal(
     bool active_vulkan = !config.force_cpu;
     bool active_disable_fp16 = config.disable_fp16;
     bool tried_alt_vulkan_fp = false;
+    bool tried_integrated_gpu_fallback = false;
     int active_tile = requested_base_tile;
 
     std::vector<std::string> fallback_steps;
@@ -1618,32 +1681,60 @@ UpscaleResult execute_pipeline_internal(
         return scfg;
     };
 
-    if (active_vulkan) {
-        if (session.init(
-                asset_manager,
-                make_session_cfg(),
-                true,
+    auto cap_vulkan_tile_to_budget = [&]() {
+        // Apply the heap/shared-memory cap after every successful Vulkan session init.
+        const int budget_tile = choose_tile_for_gpu_budget(
+            active_tile,
+            gpu_heap_budget_mb,
+            session.gpu_type(),
+            active_max_quality,
+            active_tta
+        );
+        if (budget_tile < active_tile) {
+            LOGI(
+                "Capping initial tile %d -> %d based on Vulkan heap budget (%u MB)",
                 active_tile,
-                backend_label,
-                gpu_heap_budget_mb,
-                init_failure
-            )) {
-            // Apply GPU heap budget cap when user left tile on Auto (<=0) or requested a large tile on low VRAM
-            const int budget_tile = choose_tile_for_gpu_budget(
-                active_tile,
-                gpu_heap_budget_mb,
-                active_max_quality,
-                active_tta
+                budget_tile,
+                gpu_heap_budget_mb
             );
-            if (budget_tile < active_tile) {
-                LOGI(
-                    "Capping initial tile %d -> %d based on Vulkan heap budget (%u MB)",
+            active_tile = budget_tile;
+        }
+    };
+
+    if (active_vulkan) {
+        bool vulkan_session_ready = session.init(
+            asset_manager,
+            make_session_cfg(),
+            true,
+            active_tile,
+            backend_label,
+            gpu_heap_budget_mb,
+            init_failure
+        );
+
+        // On hybrid laptops, a valid discrete device can still fail during shader/model
+        // initialization. If the user chose Auto, retry once on the onboard/integrated GPU
+        // before falling back to CPU. An explicit --gpu index remains respected.
+        if (!vulkan_session_ready && allow_fallbacks && config.gpu_index < 0) {
+            const int integrated_idx = select_vulkan_gpu_index_by_type(1u);
+            if (integrated_idx >= 0) {
+                tried_integrated_gpu_fallback = true;
+                config.gpu_index = integrated_idx;
+                record_fallback("retrying on integrated/onboard Vulkan GPU");
+                vulkan_session_ready = session.init(
+                    asset_manager,
+                    make_session_cfg(),
+                    true,
                     active_tile,
-                    budget_tile,
-                    gpu_heap_budget_mb
+                    backend_label,
+                    gpu_heap_budget_mb,
+                    init_failure
                 );
-                active_tile = budget_tile;
             }
+        }
+
+        if (vulkan_session_ready) {
+            cap_vulkan_tile_to_budget();
         } else {
             if (!allow_fallbacks) {
                 unlock_source_once();
@@ -1899,10 +1990,49 @@ UpscaleResult execute_pipeline_internal(
         return true;
     };
 
+    // A runtime shader/allocator failure can happen after device creation succeeds. For Auto
+    // mode, make the same integrated/onboard retry available here as well (not only during model
+    // initialization), while never overriding an explicit user GPU selection.
+    auto try_integrated_gpu_fallback = [&]() -> bool {
+        if (!active_vulkan || config.gpu_index >= 0 || tried_integrated_gpu_fallback) {
+            return false;
+        }
+        const int integrated_idx = select_vulkan_gpu_index_by_type(
+            1u,
+            session.gpu_index()
+        );
+        if (integrated_idx < 0) {
+            return false;
+        }
+
+        tried_integrated_gpu_fallback = true;
+        session.release();
+        config.gpu_index = integrated_idx;
+        uint32_t integrated_budget_mb = 0;
+        FailureInfo integrated_err;
+        if (!session.init(
+                asset_manager,
+                make_session_cfg(),
+                true,
+                active_tile,
+                backend_label,
+                integrated_budget_mb,
+                integrated_err
+            )) {
+            return false;
+        }
+
+        gpu_heap_budget_mb = integrated_budget_mb;
+        cap_vulkan_tile_to_budget();
+        record_fallback("switched to integrated/onboard Vulkan GPU");
+        result.backend_used = backend_label;
+        return true;
+    };
+
     // Ordered fallback state machine:
     //   - On Vulkan shader/precision corruption (`ERR_VULKAN_CORRUPTED`): immediately toggle
-    //     Vulkan FP16 <-> Vulkan FP32 once, and if still corrupted switch straight to CPU without
-    //     unnecessarily sacrificing tile size, TTA, or Max quality!
+    //     Vulkan FP16 <-> Vulkan FP32 once, then retry the onboard GPU in Auto mode, and only
+    //     then switch to CPU without unnecessarily sacrificing quality settings.
     //   - On OOM / resource failures: halve tile (down to 48) -> disable TTA -> disable Max quality -> CPU.
     auto advance_fallback_chain = [&](const FailureInfo& cause, FailureInfo& terminal_out) -> bool {
         session.clear_tile_allocators();
@@ -1939,6 +2069,10 @@ UpscaleResult execute_pipeline_internal(
                     result.backend_used = backend_label;
                     return true;
                 }
+            }
+
+            if (try_integrated_gpu_fallback()) {
+                return true;
             }
 
             // Switch straight to CPU backend while preserving user's quality settings
@@ -1992,6 +2126,10 @@ UpscaleResult execute_pipeline_internal(
         }
 
         if (active_vulkan) {
+            if (try_integrated_gpu_fallback()) {
+                return true;
+            }
+
             active_vulkan = false;
             result.used_cpu_fallback = true;
             // Release Vulkan session + VkAllocators completely before initializing CPU session
