@@ -15,7 +15,7 @@ public partial class App : Application
         {
             MessageBox.Show(
                 $"Unexpected error:\n{args.Exception.Message}",
-                "Enhancer v3.0.1 Studio",
+                "Enhancer v3.2 Studio",
                 MessageBoxButton.OK,
                 MessageBoxImage.Warning
             );
@@ -60,7 +60,8 @@ public partial class App : Application
             Console.WriteLine($"[SmokeTest] CPU={threads} ({bigCores} big), RAM={availMb}/{totalMb} MB, GPUs={gpus.Count}");
             Console.WriteLine($"[SmokeTest] Diag={diag}");
 
-            // Synthesize a 64x48 test image in RGBA8888 and run Ultra + Light AI + 300 DPI JPEG 4:4:4
+            // Synthesize a 64x48 test image in RGBA8888 and run the v3.2 Ultra identity-safe
+            // Photo x4 profile with native output and 300 DPI JPEG 4:4:4.
             int w = 64;
             int h = 48;
             byte[] rgba = new byte[w * h * 4];
@@ -79,31 +80,31 @@ public partial class App : Application
             string outFile = Path.Combine(Path.GetTempPath(), $"enhancer_wpf_smoke_{Guid.NewGuid():N}.jpg");
             var req = new UpscaleJobRequest(
                 ModelsDirectory: modelsDir,
-                ParamRelativePath: "models/realesr-animevideov3-x4.param",
-                BinRelativePath: "models/realesr-animevideov3-x4.bin",
+                ParamRelativePath: "models/realesrgan-x4plus.param",
+                BinRelativePath: "models/realesrgan-x4plus.bin",
                 OutputFilePath: outFile,
                 ModelScale: 4,
                 TargetLongSide: 0,
                 TileSize: 128,
                 DisableFp16: false,
-                MaxQuality: false,
-                TtaX8: false,
+                MaxQuality: true,
+                TtaX8: true,
                 SafeMode: false,
                 ForceCpu: gpus.Count == 0,
                 GpuIndex: -1,
                 NumThreads: Math.Min(threads, 4),
-                Sharpness: 16,
+                Sharpness: 14,
                 EnhanceMode: (int)EnhanceModeKind.Ultra,
                 EnhanceFaces: true,
-                FaceStrength: 0.70f,
-                LightAi: true,
-                LightAiStrength: 0.45f,
-                DenoiseStrength: 0.15f,
-                UltraIntensity: 0.65f,
-                UltraSize: 0.45f,
+                FaceStrength: 0.30f,
+                LightAi: false,
+                LightAiStrength: 0.30f,
+                DenoiseStrength: 0.0f,
+                UltraIntensity: 0.78f,
+                UltraSize: 0.18f,
                 Dpi: 300,
                 OutputFormat: 0,
-                JpegQuality: 98
+                JpegQuality: 100
             );
 
             UpscaleJobOutcome outcome = NativeEngine.RunUpscaleRgba(rgba, w, h, req, null);

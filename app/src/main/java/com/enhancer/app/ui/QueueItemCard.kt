@@ -214,7 +214,7 @@ fun QueueItemCard(
                 }
             }
 
-            // Active v3.1 Studio AI mode & quality badges
+            // Active v3.2 Studio AI mode & quality badges
             Spacer(modifier = Modifier.height(8.dp))
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),

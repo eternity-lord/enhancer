@@ -2512,6 +2512,7 @@ UpscaleResult execute_pipeline_internal(
             ? (" | faces=" + std::to_string(result.faces_restored) + "/" + std::to_string(result.faces_detected))
             : "") +
         (config.light_ai ? " | LightAI=ON" : "") +
+        (want_faces ? " | face_identity=locked" : "") +
         " | quality=" + std::string(active_max_quality ? "MaxQ" : "Standard") +
         " | fp16=" + std::string(active_disable_fp16 ? "OFF" : "ON") +
         " | output=" + std::string(config.format == ImageFormat::PNG ? "PNG-lossless" : "JPEG-444") +

@@ -600,16 +600,16 @@ class EnhancerQueueRepository(private val appContext: Context) {
 
     private fun loadSettings(): EnhancerSettings {
         val mode = runCatching {
-            EnhanceModePreset.valueOf(prefs.getString("enhance_mode", EnhanceModePreset.BALANCED.name)!!)
-        }.getOrDefault(EnhanceModePreset.BALANCED)
+            EnhanceModePreset.valueOf(prefs.getString("enhance_mode", EnhanceModePreset.ULTRA.name)!!)
+        }.getOrDefault(EnhanceModePreset.ULTRA)
 
         val model = runCatching {
             UpscaleModel.valueOf(prefs.getString("model", mode.defaultModel.name)!!)
         }.getOrDefault(mode.defaultModel)
 
         val target = runCatching {
-            TargetPreset.valueOf(prefs.getString("target", TargetPreset.UHD_4K.name)!!)
-        }.getOrDefault(TargetPreset.UHD_4K)
+            TargetPreset.valueOf(prefs.getString("target", TargetPreset.NATIVE.name)!!)
+        }.getOrDefault(TargetPreset.NATIVE)
 
         val enhanceFaces = prefs.getBoolean("enhance_faces", mode.defaultFaces)
         val faceStrength = prefs.getInt("face_strength", mode.defaultFaceStrength).coerceIn(0, 100)
@@ -621,7 +621,7 @@ class EnhancerQueueRepository(private val appContext: Context) {
 
         // New installs default to full-resolution Max Quality; an existing explicit user choice is preserved.
         val maxQuality = prefs.getBoolean("max_quality", true)
-        val ttaX8 = prefs.getBoolean("tta_x8", false)
+        val ttaX8 = prefs.getBoolean("tta_x8", true)
         val legacySafeMode = prefs.getBoolean("safe_mode", false)
         val forceCpu = prefs.getBoolean("force_cpu", legacySafeMode)
         val sharpness = prefs.getInt("sharpness", mode.defaultSharpness).coerceIn(0, 100)

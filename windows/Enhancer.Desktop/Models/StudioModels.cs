@@ -35,13 +35,14 @@ public sealed record ModePresetSpec(
         new(EnhanceModeKind.Gentle,     "lsdir-x4",    false, 60, false, 30, 0,  40, 35, 5),
         new(EnhanceModeKind.Balanced,   "general-v3",  true,  70, true,  45, 18, 55, 45, 12),
         new(EnhanceModeKind.Strong,     "general-wdn", true,  80, true,  60, 60, 60, 50, 18),
-        new(EnhanceModeKind.Ultra,      "photo-x4",    true,  75, true,  50, 15, 65, 45, 20),
+        // Detail-first Ultra profile: Photo x4 + micro-detail, with conservative identity-safe faces.
+        new(EnhanceModeKind.Ultra,      "photo-x4",    true,  30, false, 30, 0, 78, 18, 14),
         new(EnhanceModeKind.DigitalArt, "anime-x4",    false, 60, false, 30, 12, 50, 40, 14),
         new(EnhanceModeKind.OldPhoto,   "photo-x4",    true,  82, true,  40, 35, 55, 45, 10)
     ];
 
     public static ModePresetSpec Get(EnhanceModeKind kind) =>
-        All.FirstOrDefault(m => m.Kind == kind) ?? All[2];
+        All.FirstOrDefault(m => m.Kind == kind) ?? All[4];
 }
 
 public sealed record SrModelOption(
@@ -55,7 +56,7 @@ public sealed record SrModelOption(
 {
     public static readonly IReadOnlyList<SrModelOption> All =
     [
-        new("general-v3",  "General v3 x4 — Everyday Photos & Portraits (Default)", "عمومی v3 (4x) — عکس‌های روزمره و پرتره",        "models/realesr-general-x4v3.param",     "models/realesr-general-x4v3.bin",     4),
+        new("general-v3",  "General v3 x4 — Everyday Photos & Portraits", "عمومی v3 (4x) — عکس‌های روزمره و پرتره",        "models/realesr-general-x4v3.param",     "models/realesr-general-x4v3.bin",     4),
         new("photo-x4",    "Real-ESRGAN Photo x4+ — Maximum Natural Texture",       "فوتورئال x4+ — بیشترین جزئیات طبیعی",           "models/realesrgan-x4plus.param",        "models/realesrgan-x4plus.bin",        4),
         new("general-wdn", "General WDN x4 — Heavy Denoise & Low-Light Rescue",     "حذف نویز قوی WDN (4x) — نور کم و فشرده",        "models/realesr-general-wdn-x4v3.param", "models/realesr-general-wdn-x4v3.bin", 4),
         new("lsdir-x4",    "LSDIR Compact x4 — Clean Crisp Edges & Text",           "فشرده LSDIR (4x) — لبه‌های شارپ و متن",         "models/lsdir-compact-x4.param",         "models/lsdir-compact-x4.bin",         4),
@@ -74,7 +75,7 @@ public sealed record TargetPresetOption(int LongSide, string LabelEn, string Lab
     [
         new(0,     "Native Model Scale (Exact 2× / 3× / 4×)", "مقیاس اصلی مدل (2x / 3x / 4x)"),
         new(2560,  "2K QHD — 2560 px Long Side",              "کیفیت 2K — ضلع بزرگ ۲۵۶۰ پیکسل"),
-        new(3840,  "4K UHD — 3840 px Long Side (Default)",    "کیفیت 4K UHD — ضلع بزرگ ۳۸۴۰ پیکسل"),
+        new(3840,  "4K UHD — 3840 px Long Side",                "کیفیت 4K UHD — ضلع بزرگ ۳۸۴۰ پیکسل"),
         new(7680,  "8K UHD — 7680 px Long Side",              "کیفیت 8K UHD — ضلع بزرگ ۷۶۸۰ پیکسل"),
         new(15360, "16K Print Master — 15360 px Long Side",   "چاپ حرفه‌ای 16K — ضلع بزرگ ۱۵۳۶۰ پیکسل"),
         new(-1,    "Custom Long Side (px)...",                "اندازه دلخواه (پیکسل)...", IsCustom: true)
@@ -193,20 +194,22 @@ public sealed class QueueImageItem : INotifyPropertyChanged
 public sealed class UserPreferences
 {
     public string Language { get; set; } = "en";
-    public int EnhanceMode { get; set; } = (int)EnhanceModeKind.Balanced;
-    public string ModelSlug { get; set; } = "general-v3";
-    public int TargetPresetLongSide { get; set; } = 3840;
+    // New Windows installs use the same reference-quality profile as Android. JSON files already
+    // containing user values deserialize those values unchanged.
+    public int EnhanceMode { get; set; } = (int)EnhanceModeKind.Ultra;
+    public string ModelSlug { get; set; } = "photo-x4";
+    public int TargetPresetLongSide { get; set; } = 0;
     public int CustomLongSide { get; set; } = 4096;
     public bool EnhanceFaces { get; set; } = true;
-    public int FaceStrength { get; set; } = 70;
-    public bool LightAi { get; set; } = true;
-    public int LightAiStrength { get; set; } = 45;
-    public int DenoiseStrength { get; set; } = 18;
-    public int UltraIntensity { get; set; } = 65;
-    public int UltraSize { get; set; } = 45;
-    public int Sharpness { get; set; } = 12;
-    public bool MaxQuality { get; set; } = false;
-    public bool TtaX8 { get; set; } = false;
+    public int FaceStrength { get; set; } = 30;
+    public bool LightAi { get; set; } = false;
+    public int LightAiStrength { get; set; } = 30;
+    public int DenoiseStrength { get; set; } = 0;
+    public int UltraIntensity { get; set; } = 78;
+    public int UltraSize { get; set; } = 18;
+    public int Sharpness { get; set; } = 14;
+    public bool MaxQuality { get; set; } = true;
+    public bool TtaX8 { get; set; } = true;
     public bool ForceCpu { get; set; } = false;
     public int GpuIndex { get; set; } = -1;
     public int NumThreads { get; set; } = 0;
@@ -214,7 +217,7 @@ public sealed class UserPreferences
     public bool DisableFp16 { get; set; } = false;
     public bool DisableFp16UserSet { get; set; } = false;
     public int OutputFormat { get; set; } = 0;
-    public int JpegQuality { get; set; } = 98;
+    public int JpegQuality { get; set; } = 100;
     public int Dpi { get; set; } = 300;
     public string CustomOutputFolder { get; set; } = "";
 

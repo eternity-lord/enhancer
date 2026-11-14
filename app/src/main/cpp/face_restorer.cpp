@@ -899,9 +899,12 @@ int restore_faces_codeformer(
     }
 
     const float strength = std::clamp(face_strength, 0.0f, 1.0f);
-    // CodeFormer SFT fidelity weight w: lower w = stronger codebook synthesis, higher w = closer to LQ input
-    const float cf_fidelity_w = std::clamp(0.95f - 0.50f * strength, 0.45f, 0.92f);
-    const float blend_gain = std::clamp(0.35f + 0.65f * (strength / 0.75f), 0.25f, 1.0f);
+    // Identity-safe face restoration: keep CodeFormer's fidelity weight high and apply only a
+    // restrained residual over the SR result. This recovers lashes/eyes/skin texture without
+    // allowing the generative pass to redraw facial geometry or change the person's identity.
+    const float cf_fidelity_w = std::clamp(0.98f - 0.30f * strength, 0.68f, 0.98f);
+    const float blend_gain = std::clamp(0.10f + 0.55f * strength, 0.12f, 0.65f);
+    const float max_channel_delta = 4.0f + 16.0f * strength;
 
     std::string raw_gen_param;
     if (!read_asset_or_file_text(
@@ -1063,9 +1066,15 @@ int restore_faces_codeformer(
                     sample_rgb_bicubic_reflect(cf_ptr, 512, 512, u, v, fc);
                     uint8_t* dst = final_rgb + (static_cast<size_t>(y) * out_w + x) * 3u;
                     for (int ch = 0; ch < 3; ++ch) {
-                        const float blended =
-                            static_cast<float>(dst[ch]) * (1.0f - alpha) +
-                            std::clamp(fc[ch], 0.0f, 255.0f) * alpha;
+                        // Clamp the CodeFormer residual before blending. Large low-frequency
+                        // changes are the usual source of identity drift; SR/detail stages still
+                        // provide the high-frequency recovery around the protected face.
+                        const float residual = std::clamp(
+                            std::clamp(fc[ch], 0.0f, 255.0f) - static_cast<float>(dst[ch]),
+                            -max_channel_delta,
+                            max_channel_delta
+                        );
+                        const float blended = static_cast<float>(dst[ch]) + residual * alpha;
                         dst[ch] = static_cast<uint8_t>(std::clamp(static_cast<int>(blended + 0.5f), 0, 255));
                     }
                 }

@@ -20,8 +20,8 @@ android {
         applicationId = "com.enhancer.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 4
-        versionName = "3.1"
+        versionCode = 5
+        versionName = "3.2"
 
         val configuredAbis = (project.findProperty("enhancerAbis") as? String)
             ?.split(",")
@@ -142,7 +142,7 @@ tasks.matching { it.name == "assembleRelease" }.configureEach {
     doLast {
         val releaseApkDir = layout.buildDirectory.dir("outputs/apk/release").get().asFile
         val sourceApk = releaseApkDir.resolve("app-release.apk")
-        val renamedApk = releaseApkDir.resolve("Enhancer-v3.1-universal.apk")
+        val renamedApk = releaseApkDir.resolve("Enhancer-v3.2-universal.apk")
         if (sourceApk.exists()) {
             sourceApk.copyTo(renamedApk, overwrite = true)
         }

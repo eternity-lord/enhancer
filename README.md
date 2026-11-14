@@ -1,4 +1,4 @@
-# Enhancer v3.0.1 Studio — Offline AI Image Upscaler, Face Restoration & Smart HDR (Windows x64 & Android)
+# Enhancer v3.2 Studio — Offline AI Image Upscaler, Face Restoration & Smart HDR (Windows x64 & Android)
 
 **Built by Mohammad Irani | ساخته شده توسط محمد ایرانی**
 
@@ -9,9 +9,10 @@
 ## English
 
 ### Overview
-**Enhancer v3.0.1 Studio** is a **100% offline** AI image super-resolution, portrait face restoration, and Smart HDR enhancement suite for **Windows 10/11 (x64)** and **Android (8.0+)** — powered by a shared high-precision **C++17 + ncnn** native engine. Every neural weight is bundled offline; zero photos ever leave your device.
+**Enhancer v3.2 Studio** is a **100% offline** AI image super-resolution, portrait face restoration, and Smart HDR enhancement suite for **Windows 10/11 (x64)** and **Android (8.0+)** — powered by a shared high-precision **C++17 + ncnn** native engine. Every neural weight is bundled offline; zero photos ever leave your device.
 
-### Windows v3.0.1 Highlights (`Enhancer.exe` + `enhancer-cli.exe`)
+### Windows v3.2 Highlights (`Enhancer.exe` + `enhancer-cli.exe`)
+- **Reference-quality default profile**: Ultra + Photo x4 + native output + Max Quality + TTA x8, with conservative identity-safe face detail and no default denoise/HDR color rewrite.
 - **Works on ALL Windows PCs — With OR Without a Graphics Card**:
   - **Systems WITH a Graphics Card (NVIDIA, AMD, Intel)**: Hardware-accelerated **Vulkan GPU** compute (`SimpleVK` dynamic runtime loader), automatic **Discrete GPU → Integrated/onboard GPU** selection on hybrid laptops, shared-memory-safe auto-tiling for Intel UHD/Iris and AMD iGPUs, anti-gray output verification (`ERR_VULKAN_CORRUPTED`), and automatic `Vulkan FP16 ↔ Vulkan FP32 → CPU` fallback. The Inspector and CLI also expose explicit integrated-GPU selection.
   - **Systems WITHOUT a Graphics Card (CPU-Only PCs, Office Laptops, VMs)**: Zero dependency on `vulkan-1.dll` at load time — automatically runs optimized **Multi-Core x86-64 CPU inference** (`OpenMP` + runtime `AVX-512` / `AVX2` / `FMA` / `SSE` dispatch) with configurable thread count.
@@ -28,8 +29,8 @@
   - Dark Studio interface with **Drag & Drop** (files & folders), **Batch Queue**, **Pan/Zoom (`Fit`, `100%`, `200%`, `400%`) Interactive Split Before/After Comparison**, **English & فارسی (RTL)** live toggle, **Hardware Diagnostics / Native Self-Test / Seam-Test**, plus **`enhancer-cli.exe`** for scripting and batch pipelines.
 
 ### Installing on Windows (10 / 11 x64)
-1. Download **`Enhancer-v3.0.1-Windows-x64-Setup.exe`** (one-click installer, no admin rights or prerequisites required — `.NET 8`, `VC++/OpenMP`, and all 20 neural model files are bundled) or **`Enhancer-v3.0.1-Windows-x64-Portable.zip`** from **Releases** or **GitHub Actions → Windows CI Build & Installer → Artifacts**.
-2. Launch **Enhancer v3.0.1 Studio**, drop any image or folder onto the window, select a Studio mode, and click **Enhance Selected**.
+1. Download **`Enhancer-v3.2-Windows-x64-Setup.exe`** (one-click installer, no admin rights or prerequisites required — `.NET 8`, `VC++/OpenMP`, and all 20 neural model files are bundled) or **`Enhancer-v3.2-Windows-x64-Portable.zip`** from **Releases** or **GitHub Actions → Windows CI Build & Installer → Artifacts**.
+2. Launch **Enhancer v3.2 Studio**, drop any image or folder onto the window, select a Studio mode, and click **Enhance Selected**.
 
 ### Command-Line Usage (`enhancer-cli.exe`)
 ```powershell
@@ -39,7 +40,10 @@
 # Run native Vulkan + Multi-Core CPU verification:
 .\enhancer-cli.exe --self-test
 
-# Enhance a portrait to 4K 300 DPI in Ultra mode:
+# Start with the highest-detail identity-safe profile (native Photo x4, TTA x8, JPEG 100%):
+.\enhancer-cli.exe -i portrait.jpg -o portrait_native.jpg --mode ultra --target native --dpi 300
+
+# Enhance a portrait to a fixed 4K 300 DPI target when required:
 .\enhancer-cli.exe -i portrait.jpg -o portrait_4k.jpg --mode ultra --target 4k --dpi 300
 
 # Force Multi-Core CPU mode on a PC without a GPU:
@@ -49,21 +53,23 @@
 .\enhancer-cli.exe -i photo.jpg -o photo_igpu.jpg --gpu integrated --tile 128
 ```
 
-### Android v3.1 Highlights (`Enhancer-v3.1-universal.apk`)
-- **Detail-first defaults**: new installs use full-resolution Max Quality inference with 32 px feathered overlaps, streaming Lanczos3, JPEG 100% 4:4:4 output, and lossless PNG when exact pixels are required. Existing explicit settings remain unchanged.
+### Android v3.2 Highlights (`Enhancer-v3.2-universal.apk`)
+- **Reference-quality defaults**: new installs start in Ultra with the Photo x4 model, native x4 output, Max Quality full-resolution inference, TTA x8 ensemble processing, micro-detail recovery, JPEG 100% 4:4:4 output, and lossless PNG when exact pixels are required. Existing explicit settings remain unchanged.
 - **Faster without quality shortcuts**: tile/compositor scratch is reused, duplicate JNI progress callbacks are coalesced, CPU/OpenMP scheduling is bounded to the selected ncnn worker pool, the streaming resizer reuses its row-window pointers, and PNG uses a faster lossless encoder path.
-- **Maximum-detail targets**: Native, 2K, 4K, 8K, and 16K Print Master (15360 px), with output buffers streamed/tiled to keep the APK and export footprint unconstrained up to the supported 2 GiB delivery limit.
+- **Maximum-detail targets**: Native x4 is the starting profile shown in the reference comparison; 2K, 4K, 8K, and 16K Print Master (15360 px) remain available. Output buffers are streamed/tiled to keep memory bounded up to the supported 2 GiB delivery limit.
+- **Identity-safe faces**: SCRFD + CodeFormer is still available, but the default face residual is conservative, color-matched, and channel-delta-limited so eyelashes and skin detail can improve without redrawing facial geometry.
 - Universal offline Android package (`arm64-v8a`, `armeabi-v7a`, `x86_64`, Android 8.0+) with zero internet permission, all 7 Studio modes, `SCRFD + CodeFormer` face restoration, `Light AI`, 8 SR models, full-resolution tiled deep-zoom comparison viewer, 300 DPI metadata, foreground batch queue with thermal protection, and bilingual `English` / `فارسی` UI.
-- Download the verified APK and SHA-256 file from the [Enhancer v3.1.0 Android release](https://github.com/eternity-lord/enhancer/releases/tag/v3.1.0).
+- Download the verified APK and SHA-256 file from the [Enhancer v3.2.0 Android release](https://github.com/eternity-lord/enhancer/releases/tag/v3.2.0).
 
 ---
 
 ## فارسی
 
-### معرفی Enhancer v3.0.1 Studio (نسخه ویندوز و اندروید)
-**Enhancer نسخه ۳.۰.۱** (**ساخته شده توسط محمد ایرانی**) یک استودیوی کامل و **۱۰۰٪ آفلاین** برای افزایش کیفیت و رزولوشن تصاویر، بازسازی تخصصی چهره با هوش مصنوعی و اصلاح نور هوشمند برای **ویندوز ۱۰ و ۱۱ (۶۴ بیتی)** و **اندروید** است. تمام شبکه‌های عصبی داخل برنامه قرار دارند و هیچ تصویری به اینترنت ارسال نمی‌شود.
+### معرفی Enhancer v3.2 Studio (نسخه ویندوز و اندروید)
+**Enhancer نسخه ۳.۲** (**ساخته شده توسط محمد ایرانی**) یک استودیوی کامل و **۱۰۰٪ آفلاین** برای افزایش کیفیت و رزولوشن تصاویر، بازسازی تخصصی چهره با هوش مصنوعی و اصلاح نور هوشمند برای **ویندوز ۱۰ و ۱۱ (۶۴ بیتی)** و **اندروید** است. تمام شبکه‌های عصبی داخل برنامه قرار دارند و هیچ تصویری به اینترنت ارسال نمی‌شود.
 
 ### ویژگی‌های کلیدی نسخه ویندوز (`Enhancer.exe` و `enhancer-cli.exe`)
+- **پروفایل پیش‌فرض با بالاترین جزئیات و حفظ هویت چهره**: حالت Ultra، مدل Photo x4، خروجی Native x4، Max Quality، TTA x8 و ترمیم محافظه‌کارانه چهره بدون بازطراحی هندسه صورت.
 - **اجرای کامل روی تمام رایانه‌ها — با کارت گرافیک و بدون کارت گرافیک**:
   - **رایانه‌های دارای کارت گرافیک (NVIDIA، AMD، Intel)**: شتاب‌دهی سخت‌افزاری با **Vulkan GPU**، انتخاب خودکار کارت مجزا و در صورت نبودن/نامعتبر بودن آن استفاده از **گرافیک آنبورد (Integrated)**، تنظیم هوشمند کاشی بر اساس VRAM یا حافظه اشتراکی، و سیستم ضد تصویر خاکستری. از منوی Hardware و گزینه `--gpu integrated` هم می‌توان گرافیک آنبورد را مستقیم انتخاب کرد.
   - **رایانه‌های بدون کارت گرافیک (فقط CPU)**: بدون هیچ وابستگی اجباری به درایور گرافیک یا `vulkan-1.dll`؛ اجرای خودکار و بهینه روی **پردازنده چند‌هسته‌ای (Multi-Core CPU)** با دستورات برداری `AVX2 / AVX-512 / OpenMP` و امکان تنظیم تعداد هسته‌ها.

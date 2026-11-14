@@ -23,7 +23,7 @@ public partial class DiagnosticsWindow : Window
         var (availMb, totalMb) = NativeEngine.GetSystemMemoryMb();
         var gpus = NativeEngine.EnumerateGpus();
 
-        sb.AppendLine("=== Enhancer v3.0.1 Studio for Windows (x64) — Hardware Report ===");
+        sb.AppendLine("=== Enhancer v3.2 Studio for Windows (x64) — Hardware Report ===");
         sb.AppendLine($"Models Directory     : {_modelsDir}");
         sb.AppendLine($"System Physical RAM  : {availMb:N0} MB free / {totalMb:N0} MB total");
         sb.AppendLine($"CPU Logical Threads  : {threads} total ({big} performance cores)");

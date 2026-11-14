@@ -23,7 +23,7 @@ public sealed class Strings : INotifyPropertyChanged
     public FlowDirection WindowFlow => _isPersian ? FlowDirection.RightToLeft : FlowDirection.LeftToRight;
     public string LangButtonLabel => _isPersian ? "English (EN)" : "فارسی (FA)";
 
-    public string AppTitle => _isPersian ? "Enhancer v3.0.1 Studio — نسخه ویندوز" : "Enhancer v3.0.1 Studio";
+    public string AppTitle => _isPersian ? "Enhancer v3.2 Studio — نسخه ویندوز" : "Enhancer v3.2 Studio";
     public string AppSubtitle => _isPersian
         ? "افزایش کیفیت هوش مصنوعی، بازسازی چهره CodeFormer و نورپردازی هوشمند — کاملاً آفلاین"
         : "Offline AI Super-Resolution, CodeFormer Face Restoration & Smart HDR — Windows x64";
@@ -73,7 +73,7 @@ public sealed class Strings : INotifyPropertyChanged
     public string UltraSizeLabel => _isPersian ? "اندازه تغییرات (Size of Changes)" : "Ultra Size of Changes";
 
     public string PortraitLightSection => _isPersian ? "۲. بازسازی چهره و نورپردازی هوشمند" : "2. PORTRAIT FACES & SMART HDR";
-    public string EnhanceFacesCheck => _isPersian ? "بازسازی تخصصی چهره (SCRFD + CodeFormer 512×512)" : "Enhance Faces (SCRFD + CodeFormer 512×512)";
+    public string EnhanceFacesCheck => _isPersian ? "جزئیات چهره با حفظ هویت (SCRFD + CodeFormer)" : "Identity-Safe Face Detail (SCRFD + CodeFormer)";
     public string FaceStrengthLabel => _isPersian ? "قدرت بازسازی چهره" : "Face Restoration Strength";
     public string LightAiCheck => _isPersian ? "اصلاح نور و رنگ هوشمند (Light AI Smart HDR)" : "Light AI (Smart HDR Exposure & Color)";
     public string LightAiStrengthLabel => _isPersian ? "شدت Light AI" : "Light AI Strength";
