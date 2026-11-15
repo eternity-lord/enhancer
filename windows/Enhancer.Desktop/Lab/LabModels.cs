@@ -5,6 +5,29 @@ using System.Xml.Linq;
 namespace Enhancer.Desktop.Lab;
 
 /// <summary>
+/// A normalized paint stroke in the Lab protection mask. X/Y and Radius are relative to the
+/// image bounds so a preset remains portable at any preview zoom and source resolution.
+/// Positive strokes protect local portrait retouching; erase strokes subtract protection.
+/// </summary>
+public sealed class LabMaskStroke
+{
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double Radius { get; set; } = 0.08;
+    public double Opacity { get; set; } = 0.85;
+    public bool Erase { get; set; }
+
+    public LabMaskStroke Clone() => new()
+    {
+        X = X,
+        Y = Y,
+        Radius = Radius,
+        Opacity = Opacity,
+        Erase = Erase
+    };
+}
+
+/// <summary>
 /// Non-destructive, offline color and portrait controls for Lab. Values are deliberately
 /// normalized so a preset can be shared as a small JSON file and imported from Adobe Camera
 /// Raw-style XMP without carrying the source photograph.
@@ -32,6 +55,23 @@ public sealed class LabAdjustments
     public double Fade { get; set; }
     public bool Monochrome { get; set; }
 
+    // Five control points describe a portable RGB tone curve as offsets from the diagonal.
+    public double CurveBlack { get; set; }
+    public double CurveQuarter { get; set; }
+    public double CurveMid { get; set; }
+    public double CurveThreeQuarter { get; set; }
+    public double CurveWhite { get; set; }
+
+    // Color-wheel grade for lowlights and highlights. Hue is normalized to one full wheel.
+    public double ShadowHue { get; set; }
+    public double ShadowSaturation { get; set; }
+    public double HighlightHue { get; set; }
+    public double HighlightSaturation { get; set; }
+
+    // Painted protection mask and the face-protection master switch are part of the preset.
+    public bool FaceProtection { get; set; } = true;
+    public List<LabMaskStroke> MaskStrokes { get; set; } = new();
+
     public LabAdjustments Clone() => new()
     {
         Exposure = Exposure,
@@ -53,7 +93,18 @@ public sealed class LabAdjustments
         Vignette = Vignette,
         Grain = Grain,
         Fade = Fade,
-        Monochrome = Monochrome
+        Monochrome = Monochrome,
+        CurveBlack = CurveBlack,
+        CurveQuarter = CurveQuarter,
+        CurveMid = CurveMid,
+        CurveThreeQuarter = CurveThreeQuarter,
+        CurveWhite = CurveWhite,
+        ShadowHue = ShadowHue,
+        ShadowSaturation = ShadowSaturation,
+        HighlightHue = HighlightHue,
+        HighlightSaturation = HighlightSaturation,
+        FaceProtection = FaceProtection,
+        MaskStrokes = MaskStrokes?.Select(stroke => stroke.Clone()).ToList() ?? new()
     };
 
     public bool NearlyEquals(LabAdjustments other)
@@ -78,7 +129,37 @@ public sealed class LabAdjustments
                Close(Vignette, other.Vignette) &&
                Close(Grain, other.Grain) &&
                Close(Fade, other.Fade) &&
-               Monochrome == other.Monochrome;
+               Monochrome == other.Monochrome &&
+               Close(CurveBlack, other.CurveBlack) &&
+               Close(CurveQuarter, other.CurveQuarter) &&
+               Close(CurveMid, other.CurveMid) &&
+               Close(CurveThreeQuarter, other.CurveThreeQuarter) &&
+               Close(CurveWhite, other.CurveWhite) &&
+               Close(ShadowHue, other.ShadowHue) &&
+               Close(ShadowSaturation, other.ShadowSaturation) &&
+               Close(HighlightHue, other.HighlightHue) &&
+               Close(HighlightSaturation, other.HighlightSaturation) &&
+               FaceProtection == other.FaceProtection &&
+               MaskStrokesEqual(other.MaskStrokes);
+    }
+
+    private bool MaskStrokesEqual(IReadOnlyList<LabMaskStroke>? other)
+    {
+        if (other == null || MaskStrokes == null || MaskStrokes.Count != other.Count) return false;
+        for (int i = 0; i < MaskStrokes.Count; i++)
+        {
+            LabMaskStroke a = MaskStrokes[i];
+            LabMaskStroke b = other[i];
+            if (Math.Abs(a.X - b.X) >= 0.0005 ||
+                Math.Abs(a.Y - b.Y) >= 0.0005 ||
+                Math.Abs(a.Radius - b.Radius) >= 0.0005 ||
+                Math.Abs(a.Opacity - b.Opacity) >= 0.0005 ||
+                a.Erase != b.Erase)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 }
 
@@ -176,6 +257,7 @@ public static class LabPresetSerializer
         var preset = JsonSerializer.Deserialize<LabPresetFile>(json, JsonOptions)
             ?? throw new InvalidDataException("The preset file is empty or invalid.");
         preset.Adjustments ??= new LabAdjustments();
+        preset.Adjustments.MaskStrokes ??= new List<LabMaskStroke>();
         return preset;
     }
 
@@ -211,7 +293,17 @@ public static class LabPresetSerializer
             Clarity = Math.Clamp(Read("Clarity2012", Read("Clarity")) / 100.0, -1, 1),
             Sharpening = Math.Clamp(Read("Sharpening") / 150.0, 0, 1),
             Vignette = Math.Clamp(Math.Abs(Read("VignetteAmount")) / 100.0, 0, 1),
-            Grain = Math.Clamp(Read("GrainAmount") / 100.0, 0, 1)
+            Grain = Math.Clamp(Read("GrainAmount") / 100.0, 0, 1),
+            CurveBlack = Math.Clamp(Read("CurveBlack"), -1, 1),
+            CurveQuarter = Math.Clamp(Read("CurveQuarter"), -1, 1),
+            CurveMid = Math.Clamp(Read("CurveMid"), -1, 1),
+            CurveThreeQuarter = Math.Clamp(Read("CurveThreeQuarter"), -1, 1),
+            CurveWhite = Math.Clamp(Read("CurveWhite"), -1, 1),
+            ShadowHue = Math.Clamp(Read("ShadowHue") / 100.0, -1, 1),
+            ShadowSaturation = Math.Clamp(Read("ShadowSaturation") / 100.0, 0, 1),
+            HighlightHue = Math.Clamp(Read("HighlightHue") / 100.0, -1, 1),
+            HighlightSaturation = Math.Clamp(Read("HighlightSaturation") / 100.0, 0, 1),
+            FaceProtection = Read("FaceProtection", 1) > 0.5
         };
 
         // XMP Temperature is normally Kelvin, while Lab uses a signed normalized slider.
@@ -223,6 +315,20 @@ public static class LabPresetSerializer
         bool mono = string.Equals(Get("ProcessVersion"), "BlackAndWhite", StringComparison.OrdinalIgnoreCase)
             || Read("ConvertToGrayscale") > 0.5;
         a.Monochrome = mono;
+        try
+        {
+            string? maskJson = Get("MaskStrokesJson");
+            if (!string.IsNullOrWhiteSpace(maskJson))
+            {
+                a.MaskStrokes = JsonSerializer.Deserialize<List<LabMaskStroke>>(maskJson, JsonOptions) ?? new();
+            }
+        }
+        catch
+        {
+            // The mask is an Enhancer extension; a malformed extension must not block
+            // otherwise valid Photoshop / Camera Raw settings from importing.
+            a.MaskStrokes = new();
+        }
 
         return new LabPresetFile
         {
@@ -240,16 +346,25 @@ public static class LabPresetSerializer
         string xmpName = System.Security.SecurityElement.Escape(
             string.IsNullOrWhiteSpace(name) ? "Enhancer Lab Preset" : name
         ) ?? "Enhancer Lab Preset";
+        string maskJson = System.Security.SecurityElement.Escape(
+            JsonSerializer.Serialize(a.MaskStrokes ?? new List<LabMaskStroke>(), JsonOptions)
+        ) ?? "[]";
         return $"<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n" +
                "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n" +
                " <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n" +
-               "  <rdf:Description xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\"" +
+               "  <rdf:Description xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\" xmlns:enh=\"https://enhancer.app/lab/1.0/\"" +
                $" crs:PresetName=\"{xmpName}\" crs:Exposure2012=\"{Invariant(a.Exposure)}\"" +
                $" crs:Contrast2012=\"{P(a.Contrast)}\" crs:Highlights2012=\"{P(a.Highlights)}\"" +
                $" crs:Shadows2012=\"{P(a.Shadows)}\" crs:Saturation=\"{P(a.Saturation)}\"" +
                $" crs:Vibrance=\"{P(a.Vibrance)}\" crs:Tint=\"{P(a.Tint)}\"" +
                $" crs:Clarity2012=\"{P(a.Clarity)}\" crs:Sharpening=\"{P(a.Sharpening)}\"" +
-               $" crs:VignetteAmount=\"{P(a.Vignette)}\" crs:GrainAmount=\"{P(a.Grain)}\" />\n" +
+               $" crs:VignetteAmount=\"{P(a.Vignette)}\" crs:GrainAmount=\"{P(a.Grain)}\"" +
+               $" enh:CurveBlack=\"{Invariant(a.CurveBlack)}\" enh:CurveQuarter=\"{Invariant(a.CurveQuarter)}\"" +
+               $" enh:CurveMid=\"{Invariant(a.CurveMid)}\" enh:CurveThreeQuarter=\"{Invariant(a.CurveThreeQuarter)}\"" +
+               $" enh:CurveWhite=\"{Invariant(a.CurveWhite)}\" enh:ShadowHue=\"{P(a.ShadowHue)}\"" +
+               $" enh:ShadowSaturation=\"{P(a.ShadowSaturation)}\" enh:HighlightHue=\"{P(a.HighlightHue)}\"" +
+               $" enh:HighlightSaturation=\"{P(a.HighlightSaturation)}\" enh:FaceProtection=\"{(a.FaceProtection ? 1 : 0)}\"" +
+               $" enh:MaskStrokesJson=\"{maskJson}\" />\n" +
                " </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>\n";
     }
 }

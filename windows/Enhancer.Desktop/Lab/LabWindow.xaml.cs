@@ -30,6 +30,10 @@ public partial class LabWindow : Window
     private LabAdjustments _adjustments = new();
     private bool _suppressChanges;
     private bool _showOriginal;
+    private bool _maskEditing;
+    private bool _eraseMask;
+    private bool _maskUndoPushed;
+    private Point? _lastMaskPoint;
     private int _renderVersion;
 
     public LabWindow(string? imagePath = null)
@@ -227,6 +231,127 @@ public partial class LabWindow : Window
         ScheduleRender();
     }
 
+    private void BtnPaintMask_Click(object sender, RoutedEventArgs e)
+    {
+        SetMaskMode(!_maskEditing || _eraseMask, false);
+    }
+
+    private void BtnEraseMask_Click(object sender, RoutedEventArgs e)
+    {
+        SetMaskMode(!_maskEditing || !_eraseMask, true);
+    }
+
+    private void BtnClearMask_Click(object sender, RoutedEventArgs e)
+    {
+        if (_adjustments.MaskStrokes == null || _adjustments.MaskStrokes.Count == 0) return;
+        PushUndo();
+        _adjustments.MaskStrokes.Clear();
+        UpdateMaskOverlay();
+        ScheduleRender();
+        TxtPreviewMode.Text = "FACE PROTECTION MASK CLEARED";
+    }
+
+    private void SetMaskMode(bool enabled, bool erase)
+    {
+        _maskEditing = enabled;
+        _eraseMask = erase;
+        MaskCanvas.IsHitTestVisible = enabled;
+        BtnPaintMask.Content = enabled && !erase ? "Painting Protect Mask" : "Paint Protect Mask";
+        BtnEraseMask.Content = enabled && erase ? "Erasing Protect Mask" : "Erase Mask";
+        MaskCanvas.Opacity = enabled ? 0.92 : 0.0;
+        if (enabled)
+        {
+            TxtPreviewMode.Text = erase ? "MASK ERASE • paint over the protected face" : "MASK PAINT • paint over the face to protect it";
+        }
+    }
+
+    private void MaskCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (!_maskEditing || _original == null) return;
+        _maskUndoPushed = false;
+        _lastMaskPoint = null;
+        MaskCanvas.CaptureMouse();
+        AddMaskStroke(e.GetPosition(MaskCanvas));
+        e.Handled = true;
+    }
+
+    private void MaskCanvas_MouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_maskEditing || !_maskUndoPushed || e.LeftButton != MouseButtonState.Pressed) return;
+        AddMaskStroke(e.GetPosition(MaskCanvas));
+        e.Handled = true;
+    }
+
+    private void MaskCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_maskEditing) return;
+        MaskCanvas.ReleaseMouseCapture();
+        _lastMaskPoint = null;
+        _maskUndoPushed = false;
+        e.Handled = true;
+    }
+
+    private void AddMaskStroke(Point point)
+    {
+        if (!_maskEditing || MaskCanvas.ActualWidth <= 1 || MaskCanvas.ActualHeight <= 1) return;
+        double nx = Math.Clamp(point.X / MaskCanvas.ActualWidth, 0, 1);
+        double ny = Math.Clamp(point.Y / MaskCanvas.ActualHeight, 0, 1);
+        double minDistance = Math.Max(2.0, SldMaskBrush.Value * Math.Min(MaskCanvas.ActualWidth, MaskCanvas.ActualHeight) * 0.22);
+        if (_lastMaskPoint is Point previous &&
+            Math.Abs(point.X - previous.X) < minDistance && Math.Abs(point.Y - previous.Y) < minDistance)
+        {
+            return;
+        }
+
+        if (!_maskUndoPushed)
+        {
+            PushUndo();
+            _maskUndoPushed = true;
+        }
+        _adjustments.MaskStrokes ??= new List<LabMaskStroke>();
+        _adjustments.MaskStrokes.Add(new LabMaskStroke
+        {
+            X = nx,
+            Y = ny,
+            Radius = Math.Clamp(SldMaskBrush.Value, 0.01, 0.45),
+            Opacity = 0.88,
+            Erase = _eraseMask
+        });
+        _lastMaskPoint = point;
+        UpdateMaskOverlay();
+        ScheduleRender();
+    }
+
+    private void UpdateMaskOverlay()
+    {
+        if (MaskCanvas == null) return;
+        MaskCanvas.Children.Clear();
+        if (_adjustments.MaskStrokes == null || MaskCanvas.ActualWidth <= 1 || MaskCanvas.ActualHeight <= 1) return;
+        double width = MaskCanvas.ActualWidth;
+        double height = MaskCanvas.ActualHeight;
+        foreach (LabMaskStroke stroke in _adjustments.MaskStrokes)
+        {
+            double radiusX = Math.Max(2, stroke.Radius * width);
+            double radiusY = Math.Max(2, stroke.Radius * height);
+            var ellipse = new System.Windows.Shapes.Ellipse
+            {
+                Width = radiusX * 2,
+                Height = radiusY * 2,
+                Fill = new SolidColorBrush(stroke.Erase
+                    ? Color.FromArgb(42, 248, 113, 113)
+                    : Color.FromArgb(48, 52, 211, 153)),
+                Stroke = new SolidColorBrush(stroke.Erase
+                    ? Color.FromArgb(130, 248, 113, 113)
+                    : Color.FromArgb(130, 52, 211, 153)),
+                StrokeThickness = 1,
+                IsHitTestVisible = false
+            };
+            Canvas.SetLeft(ellipse, Math.Clamp(stroke.X, 0, 1) * width - radiusX);
+            Canvas.SetTop(ellipse, Math.Clamp(stroke.Y, 0, 1) * height - radiusY);
+            MaskCanvas.Children.Add(ellipse);
+        }
+    }
+
     private void PushUndo()
     {
         if (_original == null) return;
@@ -262,13 +387,24 @@ public partial class LabWindow : Window
             SldVignette.Value = _adjustments.Vignette;
             SldGrain.Value = _adjustments.Grain;
             SldFade.Value = _adjustments.Fade;
+            SldCurveBlack.Value = _adjustments.CurveBlack;
+            SldCurveQuarter.Value = _adjustments.CurveQuarter;
+            SldCurveMid.Value = _adjustments.CurveMid;
+            SldCurveThreeQuarter.Value = _adjustments.CurveThreeQuarter;
+            SldCurveWhite.Value = _adjustments.CurveWhite;
+            SldShadowHue.Value = _adjustments.ShadowHue;
+            SldShadowSaturation.Value = _adjustments.ShadowSaturation;
+            SldHighlightHue.Value = _adjustments.HighlightHue;
+            SldHighlightSaturation.Value = _adjustments.HighlightSaturation;
             ChkMonochrome.IsChecked = _adjustments.Monochrome;
+            ChkFaceProtection.IsChecked = _adjustments.FaceProtection;
         }
         finally
         {
             _suppressChanges = false;
         }
         UpdateValueLabels();
+        UpdateMaskOverlay();
         ScheduleRender();
     }
 
@@ -293,7 +429,18 @@ public partial class LabWindow : Window
         Vignette = SldVignette.Value,
         Grain = SldGrain.Value,
         Fade = SldFade.Value,
-        Monochrome = ChkMonochrome.IsChecked == true
+        CurveBlack = SldCurveBlack.Value,
+        CurveQuarter = SldCurveQuarter.Value,
+        CurveMid = SldCurveMid.Value,
+        CurveThreeQuarter = SldCurveThreeQuarter.Value,
+        CurveWhite = SldCurveWhite.Value,
+        ShadowHue = SldShadowHue.Value,
+        ShadowSaturation = SldShadowSaturation.Value,
+        HighlightHue = SldHighlightHue.Value,
+        HighlightSaturation = SldHighlightSaturation.Value,
+        Monochrome = ChkMonochrome.IsChecked == true,
+        FaceProtection = ChkFaceProtection.IsChecked != false,
+        MaskStrokes = _adjustments.MaskStrokes?.Select(stroke => stroke.Clone()).ToList() ?? new()
     };
 
     private void UpdateValueLabels()
@@ -318,6 +465,15 @@ public partial class LabWindow : Window
         TxtVignette.Text = Percent(SldVignette.Value);
         TxtGrain.Text = Percent(SldGrain.Value);
         TxtFade.Text = Percent(SldFade.Value);
+        TxtCurveBlack.Text = Percent(SldCurveBlack.Value);
+        TxtCurveQuarter.Text = Percent(SldCurveQuarter.Value);
+        TxtCurveMid.Text = Percent(SldCurveMid.Value);
+        TxtCurveThreeQuarter.Text = Percent(SldCurveThreeQuarter.Value);
+        TxtCurveWhite.Text = Percent(SldCurveWhite.Value);
+        TxtShadowHue.Text = Percent(SldShadowHue.Value);
+        TxtShadowSaturation.Text = Percent(SldShadowSaturation.Value);
+        TxtHighlightHue.Text = Percent(SldHighlightHue.Value);
+        TxtHighlightSaturation.Text = Percent(SldHighlightSaturation.Value);
     }
 
     private static string Signed(double value, string suffix = "") =>
@@ -398,6 +554,96 @@ public partial class LabWindow : Window
         {
             TxtPreviewMode.Text = $"Clipboard unavailable: {ex.Message}";
         }
+    }
+
+    private async void BtnBatchApply_Click(object sender, RoutedEventArgs e)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "Images|*.jpg;*.jpeg;*.png;*.webp;*.bmp;*.tif;*.tiff",
+            Multiselect = true,
+            Title = "Batch apply the current Lab look"
+        };
+        if (dialog.ShowDialog(this) != true || dialog.FileNames.Length == 0) return;
+
+        MessageBoxResult confirmation = MessageBox.Show(
+            this,
+            $"Apply the current non-destructive Lab look to {dialog.FileNames.Length} image(s)?\n\nOutputs are written beside the originals with a _Lab suffix.",
+            "Enhancer Lab batch",
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Question);
+        if (confirmation != MessageBoxResult.OK) return;
+
+        LabAdjustments snapshot = _adjustments.Clone();
+        int completed = 0;
+        int failed = 0;
+        var failures = new List<string>();
+        TxtPreviewMode.Text = "BATCH APPLY 0%";
+        try
+        {
+            await Task.Run(() =>
+            {
+                for (int i = 0; i < dialog.FileNames.Length; i++)
+                {
+                    string sourcePath = dialog.FileNames[i];
+                    try
+                    {
+                        BitmapSource source = NativeEngine.DecodeImageWithExif(sourcePath).PreviewBitmap;
+                        BitmapSource rendered = LabImageProcessor.Apply(source, snapshot);
+                        bool jpeg = Path.GetExtension(sourcePath).Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                    Path.GetExtension(sourcePath).Equals(".jpeg", StringComparison.OrdinalIgnoreCase);
+                        string outputPath = GetBatchOutputPath(sourcePath, jpeg ? ".jpg" : ".png");
+                        SaveBitmapFile(rendered, outputPath, jpeg);
+                        completed++;
+                    }
+                    catch (Exception error)
+                    {
+                        failed++;
+                        failures.Add($"{Path.GetFileName(sourcePath)}: {error.Message}");
+                    }
+
+                    int progress = (int)Math.Round((i + 1) * 100.0 / dialog.FileNames.Length);
+                    Dispatcher.Invoke(() => TxtPreviewMode.Text = $"BATCH APPLY {progress}% • {completed} saved");
+                }
+            });
+
+            string detail = failures.Count == 0 ? string.Empty : $"\n\nFailed:\n{string.Join("\n", failures.Take(5))}";
+            TxtPreviewMode.Text = $"BATCH COMPLETE • {completed} saved • {failed} failed";
+            if (failed > 0)
+            {
+                MessageBox.Show(this, $"Batch processing finished with {failed} failure(s).{detail}",
+                    "Enhancer Lab batch", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+        catch (Exception ex)
+        {
+            TxtPreviewMode.Text = "BATCH FAILED";
+            MessageBox.Show(this, $"Batch processing failed:\n\n{ex.Message}",
+                "Enhancer Lab batch", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private static string GetBatchOutputPath(string sourcePath, string extension)
+    {
+        string directory = Path.GetDirectoryName(sourcePath) ?? Directory.GetCurrentDirectory();
+        string stem = Path.GetFileNameWithoutExtension(sourcePath);
+        string path = Path.Combine(directory, stem + "_Lab" + extension);
+        int suffix = 2;
+        while (File.Exists(path))
+        {
+            path = Path.Combine(directory, $"{stem}_Lab_{suffix++}{extension}");
+        }
+        return path;
+    }
+
+    private static void SaveBitmapFile(BitmapSource bitmap, string path, bool jpeg)
+    {
+        BitmapEncoder encoder = jpeg
+            ? new JpegBitmapEncoder { QualityLevel = 100 }
+            : new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using FileStream stream = File.Create(path);
+        encoder.Save(stream);
     }
 
     private void BtnUndo_Click(object sender, RoutedEventArgs e)
@@ -515,6 +761,8 @@ public partial class LabWindow : Window
         ImgPreview.Width = double.NaN;
         ImgPreview.Height = double.NaN;
         ImgPreview.LayoutTransform = new ScaleTransform(1, 1);
+        MaskCanvas.LayoutTransform = new ScaleTransform(1, 1);
+        UpdateMaskOverlay();
         TxtPreviewMode.Text = "100% / PIXEL VIEW";
     }
 
@@ -524,6 +772,8 @@ public partial class LabWindow : Window
         ImgPreview.Width = double.NaN;
         ImgPreview.Height = double.NaN;
         ImgPreview.LayoutTransform = new ScaleTransform(2, 2);
+        MaskCanvas.LayoutTransform = new ScaleTransform(2, 2);
+        UpdateMaskOverlay();
         TxtPreviewMode.Text = "200% / DETAIL VIEW";
     }
 
@@ -531,9 +781,11 @@ public partial class LabWindow : Window
     {
         if (_current == null || PreviewScroll.ActualWidth < 20 || PreviewScroll.ActualHeight < 20) return;
         ImgPreview.LayoutTransform = Transform.Identity;
+        MaskCanvas.LayoutTransform = Transform.Identity;
         ImgPreview.Stretch = Stretch.Uniform;
         ImgPreview.Width = Math.Max(40, PreviewScroll.ActualWidth - 38);
         ImgPreview.Height = Math.Max(40, PreviewScroll.ActualHeight - 38);
+        UpdateMaskOverlay();
         TxtPreviewMode.Text = _showOriginal ? "ORIGINAL / قبل" : "EDITED PREVIEW / بعد";
     }
 

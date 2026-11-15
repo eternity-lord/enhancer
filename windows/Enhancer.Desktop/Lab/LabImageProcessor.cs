@@ -37,6 +37,16 @@ public static class LabImageProcessor
         double vignette = Math.Clamp(adjustments.Vignette, 0.0, 1.0);
         double grain = Math.Clamp(adjustments.Grain, 0.0, 1.0);
         double fade = Math.Clamp(adjustments.Fade, 0.0, 1.0);
+        double curveBlack = Math.Clamp(adjustments.CurveBlack, -1.0, 1.0);
+        double curveQuarter = Math.Clamp(adjustments.CurveQuarter, -1.0, 1.0);
+        double curveMid = Math.Clamp(adjustments.CurveMid, -1.0, 1.0);
+        double curveThreeQuarter = Math.Clamp(adjustments.CurveThreeQuarter, -1.0, 1.0);
+        double curveWhite = Math.Clamp(adjustments.CurveWhite, -1.0, 1.0);
+        double shadowHue = Math.Clamp(adjustments.ShadowHue, -1.0, 1.0);
+        double shadowSaturation = Math.Clamp(adjustments.ShadowSaturation, 0.0, 1.0);
+        double highlightHue = Math.Clamp(adjustments.HighlightHue, -1.0, 1.0);
+        double highlightSaturation = Math.Clamp(adjustments.HighlightSaturation, 0.0, 1.0);
+        IReadOnlyList<LabMaskStroke> maskStrokes = adjustments.MaskStrokes ?? Array.Empty<LabMaskStroke>();
 
         // The Lab retouch is intentionally conservative and local: it identifies likely skin
         // and tooth tones instead of applying a plastic blur to the entire image. A 3x3 source
@@ -59,6 +69,12 @@ public static class LabImageProcessor
                 double originalR = r;
                 double originalG = g;
                 double originalB = b;
+                double protection = adjustments.FaceProtection && maskStrokes.Count > 0
+                    ? ProtectionMask(maskStrokes,
+                        x / Math.Max(1.0, width - 1.0),
+                        y / Math.Max(1.0, height - 1.0))
+                    : 0.0;
+                double unprotected = 1.0 - protection;
 
                 double avgR = r;
                 double avgG = g;
@@ -122,7 +138,19 @@ public static class LabImageProcessor
                 );
                 HsvToRgb(hue, hsvSaturation, hsvValue, out r, out g, out b);
 
-                double skin = SkinMask(originalR, originalG, originalB);
+                // Apply an RGB tone curve and two restrained color-wheel grades. The curve is
+                // interpolated between five control points, while wheel color is weighted by
+                // luminance so shadows and highlights can be graded independently.
+                r = ApplyToneCurve(r, curveBlack, curveQuarter, curveMid, curveThreeQuarter, curveWhite);
+                g = ApplyToneCurve(g, curveBlack, curveQuarter, curveMid, curveThreeQuarter, curveWhite);
+                b = ApplyToneCurve(b, curveBlack, curveQuarter, curveMid, curveThreeQuarter, curveWhite);
+                double gradeLuma = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+                double shadowGrade = 1.0 - SmoothStep(0.12, 0.62, gradeLuma);
+                double highlightGrade = SmoothStep(0.42, 0.92, gradeLuma);
+                ApplyColorWheel(ref r, ref g, ref b, shadowHue, shadowSaturation, shadowGrade);
+                ApplyColorWheel(ref r, ref g, ref b, highlightHue, highlightSaturation, highlightGrade);
+
+                double skin = SkinMask(originalR, originalG, originalB) * unprotected;
                 if (skin > 0.01 && skinSmooth > 0.001)
                 {
                     double blend = skin * skinSmooth * 0.72;
@@ -143,7 +171,8 @@ public static class LabImageProcessor
                 double localSat = ColorSaturation(r, g, b);
                 double toothMask = Math.Clamp((luminance - 0.52) / 0.42, 0, 1) *
                                    Math.Clamp((0.34 - localSat) / 0.34, 0, 1) *
-                                   Math.Clamp((r - b + 0.15) / 0.55, 0, 1);
+                                   Math.Clamp((r - b + 0.15) / 0.55, 0, 1) *
+                                   unprotected;
                 if (teeth > 0.001 && toothMask > 0.01)
                 {
                     double whiten = toothMask * teeth * 0.13;
@@ -158,7 +187,8 @@ public static class LabImageProcessor
                     double highPassR = r - avgR;
                     double highPassG = g - avgG;
                     double highPassB = b - avgB;
-                    double detail = (clarity * 0.32) + (sharpening * 0.22) + (eyeDetail * 0.16);
+                    double detail = ((clarity * 0.32) + (sharpening * 0.22) + (eyeDetail * 0.16)) *
+                                    (0.15 + unprotected * 0.85);
                     r += highPassR * detail;
                     g += highPassG * detail;
                     b += highPassB * detail;
@@ -236,6 +266,73 @@ public static class LabImageProcessor
     {
         double t = Math.Clamp((value - edge0) / (edge1 - edge0), 0, 1);
         return t * t * (3 - 2 * t);
+    }
+
+    private static double ProtectionMask(IReadOnlyList<LabMaskStroke> strokes, double x, double y)
+    {
+        double mask = 0;
+        foreach (LabMaskStroke stroke in strokes)
+        {
+            double radius = Math.Clamp(stroke.Radius, 0.002, 1.0);
+            double dx = x - Math.Clamp(stroke.X, 0, 1);
+            double dy = y - Math.Clamp(stroke.Y, 0, 1);
+            double distance = Math.Sqrt((dx * dx) + (dy * dy));
+            if (distance >= radius) continue;
+            double falloff = 1.0 - (distance / radius);
+            double contribution = falloff * falloff * Math.Clamp(stroke.Opacity, 0, 1);
+            mask = stroke.Erase
+                ? Math.Max(0, mask - contribution)
+                : Math.Min(1, mask + contribution);
+        }
+        return mask;
+    }
+
+    private static double ApplyToneCurve(
+        double value,
+        double black,
+        double quarter,
+        double mid,
+        double threeQuarter,
+        double white)
+    {
+        double x = Math.Clamp(value, 0, 1);
+        double delta;
+        if (x < 0.25)
+        {
+            delta = Lerp(black, quarter, x / 0.25);
+        }
+        else if (x < 0.5)
+        {
+            delta = Lerp(quarter, mid, (x - 0.25) / 0.25);
+        }
+        else if (x < 0.75)
+        {
+            delta = Lerp(mid, threeQuarter, (x - 0.5) / 0.25);
+        }
+        else
+        {
+            delta = Lerp(threeQuarter, white, (x - 0.75) / 0.25);
+        }
+        return Math.Clamp(x + delta * 0.32, 0, 1);
+    }
+
+    private static void ApplyColorWheel(
+        ref double r,
+        ref double g,
+        ref double b,
+        double hueShift,
+        double saturation,
+        double weight)
+    {
+        if (weight <= 0.001 || saturation <= 0.001) return;
+        RgbToHsv(r, g, b, out double hue, out double valueSaturation, out double value);
+        double shiftedHue = hue + hueShift * 0.50 * weight;
+        double targetSaturation = Math.Clamp(valueSaturation + saturation * 0.55 * weight, 0, 1);
+        HsvToRgb(shiftedHue, targetSaturation, value, out double tr, out double tg, out double tb);
+        double blend = Math.Clamp(saturation * weight * 0.42, 0, 1);
+        r = Lerp(r, tr, blend);
+        g = Lerp(g, tg, blend);
+        b = Lerp(b, tb, blend);
     }
 
     private static double SkinMask(double r, double g, double b)
