@@ -287,6 +287,9 @@ public static class LabPresetSerializer
             Contrast = Math.Clamp(Read("Contrast2012", Read("Contrast")) / 100.0, -1, 1),
             Highlights = Math.Clamp(Read("Highlights2012", Read("Highlights")) / 100.0, -1, 1),
             Shadows = Math.Clamp(Read("Shadows2012", Read("Shadows")) / 100.0, -1, 1),
+            BlackPoint = Math.Clamp(Read("Blacks2012", Read("BlackPoint")) / 100.0, -1, 1),
+            WhitePoint = Math.Clamp(Read("Whites2012", Read("WhitePoint")) / 100.0, -1, 1),
+            Fade = Math.Clamp(Read("Fade") / 100.0, 0, 1),
             Saturation = Math.Clamp(Read("Saturation") / 100.0, -1, 1),
             Vibrance = Math.Clamp(Read("Vibrance") / 100.0, -1, 1),
             Tint = Math.Clamp(Read("Tint") / 100.0, -1, 1),
@@ -355,11 +358,13 @@ public static class LabPresetSerializer
                "  <rdf:Description xmlns:crs=\"http://ns.adobe.com/camera-raw-settings/1.0/\" xmlns:enh=\"https://enhancer.app/lab/1.0/\"" +
                $" crs:PresetName=\"{xmpName}\" crs:Exposure2012=\"{Invariant(a.Exposure)}\"" +
                $" crs:Contrast2012=\"{P(a.Contrast)}\" crs:Highlights2012=\"{P(a.Highlights)}\"" +
-               $" crs:Shadows2012=\"{P(a.Shadows)}\" crs:Saturation=\"{P(a.Saturation)}\"" +
-               $" crs:Vibrance=\"{P(a.Vibrance)}\" crs:Tint=\"{P(a.Tint)}\"" +
+               $" crs:Shadows2012=\"{P(a.Shadows)}\" crs:Blacks2012=\"{P(a.BlackPoint)}\"" +
+               $" crs:Whites2012=\"{P(a.WhitePoint)}\" crs:Temperature=\"{Invariant(5500 + a.Temperature * 3000)}\"" +
+               $" crs:Saturation=\"{P(a.Saturation)}\" crs:Vibrance=\"{P(a.Vibrance)}\" crs:Tint=\"{P(a.Tint)}\"" +
                $" crs:Clarity2012=\"{P(a.Clarity)}\" crs:Sharpening=\"{P(a.Sharpening)}\"" +
                $" crs:VignetteAmount=\"{P(a.Vignette)}\" crs:GrainAmount=\"{P(a.Grain)}\"" +
-               $" enh:CurveBlack=\"{Invariant(a.CurveBlack)}\" enh:CurveQuarter=\"{Invariant(a.CurveQuarter)}\"" +
+               $" crs:ConvertToGrayscale=\"{(a.Monochrome ? 1 : 0)}\"" +
+               $" enh:Fade=\"{P(a.Fade)}\" enh:CurveBlack=\"{Invariant(a.CurveBlack)}\" enh:CurveQuarter=\"{Invariant(a.CurveQuarter)}\"" +
                $" enh:CurveMid=\"{Invariant(a.CurveMid)}\" enh:CurveThreeQuarter=\"{Invariant(a.CurveThreeQuarter)}\"" +
                $" enh:CurveWhite=\"{Invariant(a.CurveWhite)}\" enh:ShadowHue=\"{P(a.ShadowHue)}\"" +
                $" enh:ShadowSaturation=\"{P(a.ShadowSaturation)}\" enh:HighlightHue=\"{P(a.HighlightHue)}\"" +
