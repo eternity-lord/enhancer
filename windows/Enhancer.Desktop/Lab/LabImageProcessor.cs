@@ -299,17 +299,35 @@ public static class LabImageProcessor
         double c = v * s;
         double x = c * (1.0 - Math.Abs((h * 6.0) % 2.0 - 1.0));
         double m = v - c;
-        (r, g, b) = h switch
+        double rr;
+        double gg;
+        double bb;
+        if (h < 1.0 / 6.0)
         {
-            < 1.0 / 6.0 => (c, x, 0),
-            < 2.0 / 6.0 => (x, c, 0),
-            < 3.0 / 6.0 => (0, c, x),
-            < 4.0 / 6.0 => (0, x, c),
-            < 5.0 / 6.0 => (x, 0, c),
-            _ => (c, 0, x)
-        };
-        r += m;
-        g += m;
-        b += m;
+            rr = c; gg = x; bb = 0;
+        }
+        else if (h < 2.0 / 6.0)
+        {
+            rr = x; gg = c; bb = 0;
+        }
+        else if (h < 3.0 / 6.0)
+        {
+            rr = 0; gg = c; bb = x;
+        }
+        else if (h < 4.0 / 6.0)
+        {
+            rr = 0; gg = x; bb = c;
+        }
+        else if (h < 5.0 / 6.0)
+        {
+            rr = x; gg = 0; bb = c;
+        }
+        else
+        {
+            rr = c; gg = 0; bb = x;
+        }
+        r = rr + m;
+        g = gg + m;
+        b = bb + m;
     }
 }

@@ -497,11 +497,9 @@ public partial class LabWindow : Window
             BitmapMetadata metadata = new BitmapMetadata(png ? "png" : "jpg")
             {
                 ApplicationName = "Enhancer Lab",
-                Comment = "Enhancer Lab — offline non-destructive retouch and color grade",
-                DpiX = 300,
-                DpiY = 300
+                Comment = "Enhancer Lab — offline non-destructive retouch and color grade"
             };
-            encoder.Frames.Add(BitmapFrame.Create(_current, null, metadata, new BitmapSizeOptions(1, 1, true)));
+            encoder.Frames.Add(BitmapFrame.Create(_current, null, metadata, _current.ColorContexts));
             using FileStream stream = File.Create(dialog.FileName);
             encoder.Save(stream);
             TxtPreviewMode.Text = $"SAVED: {Path.GetFileName(dialog.FileName)}";
