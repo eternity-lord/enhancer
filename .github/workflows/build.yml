@@ -138,7 +138,7 @@ jobs:
         run: |
           TAG="v3.2.0"
           if [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            TAG="v3.2.0-skin-retouch"
+            TAG="v3.2.1-skin-retouch"
           fi
           APK="app/build/outputs/apk/release/Enhancer-v3.2-universal.apk"
           SHA="${APK}.sha256"
