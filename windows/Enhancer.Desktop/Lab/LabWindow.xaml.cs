@@ -326,10 +326,12 @@ public partial class LabWindow : Window
 
     private void AddMaskStroke(Point point)
     {
-        if (!_maskEditing || MaskCanvas.ActualWidth <= 1 || MaskCanvas.ActualHeight <= 1) return;
-        double nx = Math.Clamp(point.X / MaskCanvas.ActualWidth, 0, 1);
-        double ny = Math.Clamp(point.Y / MaskCanvas.ActualHeight, 0, 1);
-        double minDistance = Math.Max(2.0, SldMaskBrush.Value * Math.Min(MaskCanvas.ActualWidth, MaskCanvas.ActualHeight) * 0.22);
+        if (!_maskEditing) return;
+        Rect imageRect = GetImageContentRect();
+        if (imageRect.Width <= 1 || imageRect.Height <= 1 || !imageRect.Contains(point)) return;
+        double nx = Math.Clamp((point.X - imageRect.X) / imageRect.Width, 0, 1);
+        double ny = Math.Clamp((point.Y - imageRect.Y) / imageRect.Height, 0, 1);
+        double minDistance = Math.Max(2.0, SldMaskBrush.Value * Math.Min(imageRect.Width, imageRect.Height) * 0.22);
         if (_lastMaskPoint is Point previous &&
             Math.Abs(point.X - previous.X) < minDistance && Math.Abs(point.Y - previous.Y) < minDistance)
         {
@@ -360,9 +362,11 @@ public partial class LabWindow : Window
     {
         if (MaskCanvas == null) return;
         MaskCanvas.Children.Clear();
-        if (_adjustments.MaskStrokes == null || MaskCanvas.ActualWidth <= 1 || MaskCanvas.ActualHeight <= 1) return;
-        double width = MaskCanvas.ActualWidth;
-        double height = MaskCanvas.ActualHeight;
+        if (_adjustments.MaskStrokes == null) return;
+        Rect imageRect = GetImageContentRect();
+        if (imageRect.Width <= 1 || imageRect.Height <= 1) return;
+        double width = imageRect.Width;
+        double height = imageRect.Height;
         foreach (LabMaskStroke stroke in _adjustments.MaskStrokes)
         {
             double radiusX = Math.Max(2, stroke.Radius * width);
@@ -381,10 +385,31 @@ public partial class LabWindow : Window
                 StrokeThickness = 1,
                 IsHitTestVisible = false
             };
-            Canvas.SetLeft(ellipse, Math.Clamp(stroke.X, 0, 1) * width - radiusX);
-            Canvas.SetTop(ellipse, Math.Clamp(stroke.Y, 0, 1) * height - radiusY);
+            Canvas.SetLeft(ellipse, imageRect.X + Math.Clamp(stroke.X, 0, 1) * width - radiusX);
+            Canvas.SetTop(ellipse, imageRect.Y + Math.Clamp(stroke.Y, 0, 1) * height - radiusY);
             MaskCanvas.Children.Add(ellipse);
         }
+    }
+
+    private Rect GetImageContentRect()
+    {
+        double boxWidth = MaskCanvas?.ActualWidth ?? 0;
+        double boxHeight = MaskCanvas?.ActualHeight ?? 0;
+        if (_original == null || boxWidth <= 1 || boxHeight <= 1)
+        {
+            return new Rect(0, 0, boxWidth, boxHeight);
+        }
+
+        double sourceAspect = _original.PixelWidth / (double)Math.Max(1, _original.PixelHeight);
+        double boxAspect = boxWidth / boxHeight;
+        if (boxAspect > sourceAspect)
+        {
+            double contentWidth = boxHeight * sourceAspect;
+            return new Rect((boxWidth - contentWidth) / 2.0, 0, contentWidth, boxHeight);
+        }
+
+        double contentHeight = boxWidth / sourceAspect;
+        return new Rect(0, (boxHeight - contentHeight) / 2.0, boxWidth, contentHeight);
     }
 
     private void PushUndo()
@@ -545,9 +570,12 @@ public partial class LabWindow : Window
             _current = rendered;
             ImgPreview.Source = _showOriginal ? _original : _current;
             UpdateHistogram();
+            string maskStatus = snapshot.MaskStrokes?.Any(stroke => stroke.Retouch && !stroke.Erase) == true
+                ? " • orange retouch mask active"
+                : string.Empty;
             TxtPreviewMode.Text = _showOriginal
                 ? $"ORIGINAL / قبل • preview ready in {stopwatch.Elapsed.TotalSeconds:0.0}s"
-                : $"EDITED PREVIEW / بعد • rendered in {stopwatch.Elapsed.TotalSeconds:0.0}s";
+                : $"EDITED PREVIEW / بعد • rendered in {stopwatch.Elapsed.TotalSeconds:0.0}s{maskStatus}";
         }
         catch (OperationCanceledException)
         {
