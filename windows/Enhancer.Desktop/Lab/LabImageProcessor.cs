@@ -50,10 +50,29 @@ public static class LabImageProcessor
         IReadOnlyList<LabMaskStroke> maskStrokes = adjustments.MaskStrokes ?? new List<LabMaskStroke>();
         bool hasRetouchMask = maskStrokes.Any(stroke => stroke.Retouch && !stroke.Erase);
 
-        // The Lab retouch is intentionally conservative and local: it identifies likely skin
-        // and tooth tones instead of applying a plastic blur to the entire image. A 3x3 source
-        // neighborhood gives a fast, deterministic offline approximation suitable for portraits.
-        bool needsNeighborhood = skinSmooth > 0.001 || clarity > 0.001 || sharpening > 0.001 || eyeDetail > 0.001;
+        // A painted retouch area is actionable on its own: it supplies a restrained baseline
+        // even when the user has not touched every individual slider. The visible strength is
+        // still bounded and only affects the orange mask, never the whole photograph.
+        double localSkinSmooth = skinSmooth;
+        double localFaceLight = faceLight;
+        double localEyeDetail = eyeDetail;
+        double localTeeth = teeth;
+        double localSharpening = sharpening;
+        if (hasRetouchMask)
+        {
+            localSkinSmooth = Math.Max(localSkinSmooth, manualRetouchStrength * 0.70);
+            localFaceLight = Math.Max(localFaceLight, manualRetouchStrength * 0.18);
+            localEyeDetail = Math.Max(localEyeDetail, manualRetouchStrength * 0.34);
+            localTeeth = Math.Max(localTeeth, manualRetouchStrength * 0.18);
+            localSharpening = Math.Max(localSharpening, manualRetouchStrength * 0.14);
+        }
+
+        // The Lab retouch is intentionally local: it identifies likely skin and tooth tones
+        // instead of applying a plastic blur to the entire image. Strong masked smoothing uses
+        // a 5x5 neighborhood; ordinary controls stay on the faster 3x3 neighborhood.
+        bool needsNeighborhood = localSkinSmooth > 0.001 || clarity > 0.001 ||
+                                 localSharpening > 0.001 || localEyeDetail > 0.001;
+        int neighborhoodRadius = hasRetouchMask && localSkinSmooth > 0.35 ? 2 : 1;
 
         Parallel.For(0, height, new ParallelOptions
         {
@@ -91,10 +110,10 @@ public static class LabImageProcessor
                 {
                     int samples = 0;
                     double sumR = 0, sumG = 0, sumB = 0;
-                    for (int oy = -1; oy <= 1; oy++)
+                    for (int oy = -neighborhoodRadius; oy <= neighborhoodRadius; oy++)
                     {
                         int sy = Math.Clamp(y + oy, 0, height - 1);
-                        for (int ox = -1; ox <= 1; ox++)
+                        for (int ox = -neighborhoodRadius; ox <= neighborhoodRadius; ox++)
                         {
                             int sx = Math.Clamp(x + ox, 0, width - 1);
                             int si = (sy * stride) + (sx * 4);
@@ -158,17 +177,18 @@ public static class LabImageProcessor
                 ApplyColorWheel(ref r, ref g, ref b, shadowHue, shadowSaturation, shadowGrade);
                 ApplyColorWheel(ref r, ref g, ref b, highlightHue, highlightSaturation, highlightGrade);
 
-                double skin = SkinMask(originalR, originalG, originalB) * retouchScope;
-                if (skin > 0.01 && skinSmooth > 0.001)
+                double skinConfidence = SkinMask(originalR, originalG, originalB);
+                double skin = (hasRetouchMask ? Math.Max(0.55, skinConfidence) : skinConfidence) * retouchScope;
+                if (skin > 0.01 && localSkinSmooth > 0.001)
                 {
-                    double blend = Math.Clamp(skin * skinSmooth * 0.72 * localRetouchBoost, 0, 0.96);
+                    double blend = Math.Clamp(skin * localSkinSmooth * 0.72 * localRetouchBoost, 0, 0.96);
                     r = Lerp(r, avgR, blend);
                     g = Lerp(g, avgG, blend);
                     b = Lerp(b, avgB, blend);
                 }
-                if (skin > 0.01 && faceLight > 0.001)
+                if (skin > 0.01 && localFaceLight > 0.001)
                 {
-                    double lift = Math.Min(0.22, skin * faceLight * 0.10 * localRetouchBoost);
+                    double lift = Math.Min(0.22, skin * localFaceLight * 0.10 * localRetouchBoost);
                     r += lift;
                     g += lift;
                     b += lift;
@@ -181,9 +201,9 @@ public static class LabImageProcessor
                                    Math.Clamp((0.34 - localSat) / 0.34, 0, 1) *
                                    Math.Clamp((r - b + 0.15) / 0.55, 0, 1) *
                                    retouchScope;
-                if (teeth > 0.001 && toothMask > 0.01)
+                if (localTeeth > 0.001 && toothMask > 0.01)
                 {
-                    double whiten = Math.Min(0.28, toothMask * teeth * 0.13 * localRetouchBoost);
+                    double whiten = Math.Min(0.28, toothMask * localTeeth * 0.13 * localRetouchBoost);
                     r += whiten;
                     g += whiten;
                     b += whiten * 1.08;
@@ -195,9 +215,9 @@ public static class LabImageProcessor
                     double highPassR = r - avgR;
                     double highPassG = g - avgG;
                     double highPassB = b - avgB;
-                    double detail = ((clarity * 0.32) + (sharpening * 0.22)) *
+                    double detail = ((clarity * 0.32) + (localSharpening * 0.22)) *
                                     (0.15 + unprotected * 0.85) +
-                                    eyeDetail * 0.16 * retouchScope * localRetouchBoost;
+                                    localEyeDetail * 0.16 * retouchScope * localRetouchBoost;
                     r += highPassR * detail;
                     g += highPassG * detail;
                     b += highPassB * detail;
