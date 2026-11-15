@@ -25,6 +25,8 @@ public partial class SkinRetouchWindow : Window
     private bool _maskUndoPushed;
     private Point? _lastMaskPoint;
     private int _renderVersion;
+    private bool _renderInProgress;
+    private bool _lastRenderHasVisibleChange;
 
     public string? SavedOutputPath { get; private set; }
     public int SavedOutputWidth { get; private set; }
@@ -52,6 +54,11 @@ public partial class SkinRetouchWindow : Window
 
     private void LoadImage(string path)
     {
+        _renderCancellation?.Cancel();
+        _renderCancellation?.Dispose();
+        _renderCancellation = null;
+        _renderVersion++;
+        _renderInProgress = false;
         try
         {
             if (!File.Exists(path)) throw new FileNotFoundException("Image file not found.", path);
@@ -60,6 +67,7 @@ public partial class SkinRetouchWindow : Window
             _original = decoded.PreviewBitmap;
             _current = _original;
             _settings = new SkinRetouchSettings();
+            _lastRenderHasVisibleChange = false;
             _showOriginal = false;
             _maskEditing = false;
             _eraseMask = false;
@@ -116,6 +124,10 @@ public partial class SkinRetouchWindow : Window
         _settings.TexturePreservation = SldTexture.Value;
         _settings.SkinToneProtection = ChkSkinTone.IsChecked == true;
         UpdateValueLabels();
+        if (sender != SldBrush && _settings.Strokes is { Count: > 0 })
+        {
+            ScheduleRender();
+        }
     }
 
     private void SettingChanged(object sender, RoutedPropertyChangedEventArgs<double> e) =>
@@ -209,6 +221,8 @@ public partial class SkinRetouchWindow : Window
         CancellationToken token = _renderCancellation.Token;
         SkinRetouchSettings snapshot = _settings.Clone();
         BitmapSource original = _original;
+        _renderInProgress = true;
+        _lastRenderHasVisibleChange = false;
         TxtResultStatus.Text = "RENDERING LOCAL SKIN RETOUCH...";
         _ = RenderAsync(version, original, snapshot, token);
     }
@@ -228,6 +242,7 @@ public partial class SkinRetouchWindow : Window
             if (token.IsCancellationRequested || version != _renderVersion) return;
 
             _current = result.Bitmap;
+            _lastRenderHasVisibleChange = result.HasVisibleChange;
             ImgPreview.Source = _showOriginal ? _original : _current;
             TxtMaskMetrics.Text = $"Mask: {result.MaskedPixels:N0} px";
             TxtChangeMetrics.Text = $"Changed pixels: {result.ChangedPixels:N0}";
@@ -242,6 +257,13 @@ public partial class SkinRetouchWindow : Window
         catch (Exception ex)
         {
             if (version == _renderVersion) TxtResultStatus.Text = $"Render error: {ex.Message}";
+        }
+        finally
+        {
+            if (version == _renderVersion)
+            {
+                _renderInProgress = false;
+            }
         }
     }
 
@@ -347,6 +369,21 @@ public partial class SkinRetouchWindow : Window
     private void SaveImage(bool png)
     {
         if (_current == null) return;
+        if (_renderInProgress)
+        {
+            TxtResultStatus.Text = "RENDER STILL RUNNING • wait for RETOUCH COMPLETE before saving";
+            return;
+        }
+        if (_settings.Strokes is { Count: > 0 } && ReferenceEquals(_current, _original))
+        {
+            TxtResultStatus.Text = "No completed retouch result • click Render Retouch and wait for completion";
+            return;
+        }
+        if (_settings.Strokes is { Count: > 0 } && !_lastRenderHasVisibleChange)
+        {
+            TxtResultStatus.Text = "No visible pixel change was produced • refine the selected skin area";
+            return;
+        }
         var dialog = new SaveFileDialog
         {
             Filter = png ? "PNG image|*.png" : "JPEG image|*.jpg;*.jpeg",
@@ -384,6 +421,7 @@ public partial class SkinRetouchWindow : Window
     private void BtnReset_Click(object sender, RoutedEventArgs e)
     {
         _settings = new SkinRetouchSettings();
+        _lastRenderHasVisibleChange = false;
         _suppressChanges = true;
         try
         {

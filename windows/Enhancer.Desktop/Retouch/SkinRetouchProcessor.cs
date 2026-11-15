@@ -5,9 +5,10 @@ using System.Windows.Media.Imaging;
 namespace Enhancer.Desktop.Retouch;
 
 /// <summary>
-/// Offline local skin retouch processor. It never reconstructs a face and never changes pixels
-/// outside the painted mask. A small neighborhood is used to reduce blemish-scale variation while
-/// retaining a configurable amount of texture, which keeps ordinary portraits suitable for daily use.
+    /// Offline local skin retouch processor. It never reconstructs a face and never changes pixels
+    /// outside the painted mask. A resolution-aware local neighborhood reduces blemish-scale
+    /// variation while retaining a configurable amount of texture, which keeps ordinary portraits
+    /// suitable for daily use.
 /// </summary>
 public static class SkinRetouchProcessor
 {
@@ -37,7 +38,13 @@ public static class SkinRetouchProcessor
 
         double strength = Math.Clamp(settings.Strength, 0, 1);
         double texture = Math.Clamp(settings.TexturePreservation, 0, 1);
-        int radius = strength >= 0.72 ? 3 : 2;
+
+        // The old implementation used a fixed 2–3 pixel neighborhood. That passed the tiny
+        // smoke fixture but is effectively invisible on a 2K/4K portrait: three pixels are only
+        // a fraction of a pore. Scale the sampling radius with the actual source resolution and
+        // keep it capped so CPU fallback stays predictable.
+        int radius = ComputeNeighborhoodRadius(width, height, strength);
+        int[] sampleOffsets = BuildSampleOffsets(radius);
         int changedPixels = 0;
         int maxChannelDelta = 0;
         long totalChannelDelta = 0;
@@ -72,29 +79,25 @@ public static class SkinRetouchProcessor
                 double averageR = r;
                 double averageG = g;
                 double averageB = b;
-                int samples = 0;
                 double sumR = 0;
                 double sumG = 0;
                 double sumB = 0;
-                for (int oy = -radius; oy <= radius; oy++)
+                foreach (int oy in sampleOffsets)
                 {
                     int sy = Math.Clamp(y + oy, 0, height - 1);
-                    for (int ox = -radius; ox <= radius; ox++)
+                    foreach (int ox in sampleOffsets)
                     {
                         int sx = Math.Clamp(x + ox, 0, width - 1);
                         int sampleIndex = sy * stride + sx * 4;
                         sumB += input[sampleIndex] / 255.0;
                         sumG += input[sampleIndex + 1] / 255.0;
                         sumR += input[sampleIndex + 2] / 255.0;
-                        samples++;
                     }
                 }
-                if (samples > 0)
-                {
-                    averageR = sumR / samples;
-                    averageG = sumG / samples;
-                    averageB = sumB / samples;
-                }
+                int sampleCount = sampleOffsets.Length * sampleOffsets.Length;
+                averageR = sumR / sampleCount;
+                averageG = sumG / sampleCount;
+                averageB = sumB / sampleCount;
 
                 // Keep part of the high-frequency detail so pores and expression stay natural.
                 double retainedDetail = 0.30 + texture * 0.58;
@@ -125,7 +128,7 @@ public static class SkinRetouchProcessor
                 output[index] = outputB;
                 output[index + 1] = outputG;
                 output[index + 2] = outputR;
-                output[index + 3] = 255;
+                output[index + 3] = input[index + 3];
 
                 int delta = Math.Abs(outputB - input[index]) +
                             Math.Abs(outputG - input[index + 1]) +
@@ -161,8 +164,10 @@ public static class SkinRetouchProcessor
     /// </summary>
     public static bool RunSelfTest(out SkinRetouchResult result)
     {
-        const int width = 72;
-        const int height = 56;
+        // Use a near-HD fixture rather than a tiny thumbnail. A fixed-pixel blur can pass a
+        // thumbnail test while remaining invisible on the real high-resolution photos users edit.
+        const int width = 1024;
+        const int height = 768;
         int stride = width * 4;
         byte[] pixels = new byte[stride * height];
         for (int y = 0; y < height; y++)
@@ -208,35 +213,58 @@ public static class SkinRetouchProcessor
         double[] mask = new double[checked(width * height)];
         if (strokes.Count == 0) return mask;
 
-        Parallel.For(0, height, new ParallelOptions
-        {
-            CancellationToken = cancellationToken,
-            MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1)
-        }, y =>
+        // Rasterize each brush only inside its own bounds. The previous implementation scanned
+        // every source pixel for every stroke, so a normal drag on a high-resolution image could
+        // spend most of the render in mask construction and repeatedly cancel itself.
+        int maxCoordinateX = Math.Max(1, width - 1);
+        int maxCoordinateY = Math.Max(1, height - 1);
+        foreach (SkinRetouchStroke stroke in strokes)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            double normalizedY = y / (double)Math.Max(1, height - 1);
-            for (int x = 0; x < width; x++)
+            double radius = Math.Clamp(stroke.Radius, 0.002, 1.0);
+            double centerX = Math.Clamp(stroke.X, 0, 1);
+            double centerY = Math.Clamp(stroke.Y, 0, 1);
+            int minX = Math.Max(0, (int)Math.Floor((centerX - radius) * maxCoordinateX));
+            int maxX = Math.Min(width - 1, (int)Math.Ceiling((centerX + radius) * maxCoordinateX));
+            int minY = Math.Max(0, (int)Math.Floor((centerY - radius) * maxCoordinateY));
+            int maxY = Math.Min(height - 1, (int)Math.Ceiling((centerY + radius) * maxCoordinateY));
+            double opacity = Math.Clamp(stroke.Opacity, 0, 1);
+
+            for (int y = minY; y <= maxY; y++)
             {
-                double normalizedX = x / (double)Math.Max(1, width - 1);
-                double value = 0;
-                foreach (SkinRetouchStroke stroke in strokes)
+                if ((y & 31) == 0) cancellationToken.ThrowIfCancellationRequested();
+                double normalizedY = y / (double)maxCoordinateY;
+                double dy = normalizedY - centerY;
+                for (int x = minX; x <= maxX; x++)
                 {
-                    double radius = Math.Clamp(stroke.Radius, 0.002, 1.0);
-                    double dx = normalizedX - Math.Clamp(stroke.X, 0, 1);
-                    double dy = normalizedY - Math.Clamp(stroke.Y, 0, 1);
+                    double normalizedX = x / (double)maxCoordinateX;
+                    double dx = normalizedX - centerX;
                     double distance = Math.Sqrt(dx * dx + dy * dy);
                     if (distance >= radius) continue;
                     double falloff = 1.0 - distance / radius;
-                    double contribution = falloff * falloff * Math.Clamp(stroke.Opacity, 0, 1);
-                    value = stroke.Erase
-                        ? Math.Max(0, value - contribution)
-                        : Math.Min(1, value + contribution);
+                    double contribution = falloff * falloff * opacity;
+                    int index = y * width + x;
+                    mask[index] = stroke.Erase
+                        ? Math.Max(0, mask[index] - contribution)
+                        : Math.Min(1, mask[index] + contribution);
                 }
-                mask[y * width + x] = value;
             }
-        });
+        }
         return mask;
+    }
+
+    private static int ComputeNeighborhoodRadius(int width, int height, double strength)
+    {
+        int shortestSide = Math.Min(width, height);
+        int resolutionRadius = (int)Math.Round(shortestSide * 0.0035, MidpointRounding.AwayFromZero);
+        int strengthRadius = strength >= 0.72 ? 1 : 0;
+        return Math.Clamp(Math.Max(2, resolutionRadius) + strengthRadius, 2, 12);
+    }
+
+    private static int[] BuildSampleOffsets(int radius)
+    {
+        int half = Math.Max(1, radius / 2);
+        return [-radius, -half, 0, half, radius];
     }
 
     private static double SkinConfidence(double r, double g, double b)
