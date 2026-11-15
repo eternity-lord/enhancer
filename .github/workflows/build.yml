@@ -131,12 +131,15 @@ jobs:
             app/build/outputs/apk/release/Enhancer-v3.2-universal.apk.sha256
           if-no-files-found: error
 
-      - name: Attach Universal Android APK to GitHub Release v3.2.0 (on main)
-        if: github.ref == 'refs/heads/main'
+      - name: Attach Universal Android APK to public GitHub Release
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/arena/0f768984-enhancer'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v3.2.0"
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            TAG="v3.2.0-skin-retouch"
+          fi
           APK="app/build/outputs/apk/release/Enhancer-v3.2-universal.apk"
           SHA="${APK}.sha256"
           if gh release view "$TAG" >/dev/null 2>&1; then
