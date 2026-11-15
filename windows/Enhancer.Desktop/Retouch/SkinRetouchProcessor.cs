@@ -70,10 +70,10 @@ public static class SkinRetouchProcessor
                 double skinConfidence = SkinConfidence(r, g, b);
                 if (settings.SkinToneProtection)
                 {
-                    // The painted mask remains authoritative. Skin confidence only softens the
-                    // effect around hair, clothing and background; it can never turn a selected
-                    // area completely off, which was the source of the old "mask but no change" UX.
-                    scope *= Math.Max(0.48, skinConfidence);
+                    // The painted selection is authoritative. Skin-tone protection may make the
+                    // operation slightly gentler around hair, clothing and background, but it must
+                    // never suppress a user-selected pixel to the point that the edit disappears.
+                    scope *= 0.92 + (skinConfidence * 0.08);
                 }
 
                 double averageR = r;
@@ -99,22 +99,23 @@ public static class SkinRetouchProcessor
                 averageG = sumG / sampleCount;
                 averageB = sumB / sampleCount;
 
-                // Keep part of the high-frequency detail so pores and expression stay natural.
-                double retainedDetail = 0.30 + texture * 0.58;
+                // Keep part of the high-frequency detail so pores and expression stay natural,
+                // but leave enough room for a visibly useful local correction at normal settings.
+                double retainedDetail = 0.20 + texture * 0.52;
                 double targetR = averageR + (r - averageR) * retainedDetail;
                 double targetG = averageG + (g - averageG) * retainedDetail;
                 double targetB = averageB + (b - averageB) * retainedDetail;
                 double blend = Math.Clamp(
-                    scope * (0.22 + strength * 0.66) * (1.0 - texture * 0.16),
+                    scope * (0.30 + strength * 0.68) * (1.0 - texture * 0.12),
                     0.0,
-                    0.86
+                    0.92
                 );
 
                 // A restrained local tone-evening pass reduces small blotches without lifting the
                 // whole face. It is also useful on low-detail photographs where blur alone is subtle.
                 double luma = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
                 double averageLuma = (0.2126 * averageR) + (0.7152 * averageG) + (0.0722 * averageB);
-                double lift = (averageLuma - luma) * scope * strength * 0.08;
+                double lift = (averageLuma - luma) * scope * strength * 0.12;
                 targetR += lift;
                 targetG += lift;
                 targetB += lift;
@@ -178,9 +179,12 @@ public static class SkinRetouchProcessor
                 double dx = (x - width * 0.5) / (width * 0.5);
                 double dy = (y - height * 0.5) / (height * 0.5);
                 bool facePatch = dx * dx + dy * dy < 0.48;
-                byte r = facePatch ? (byte)Math.Clamp(178 + ((x * 7 + y * 3) % 19), 0, 255) : (byte)48;
-                byte g = facePatch ? (byte)Math.Clamp(118 + ((x * 5 + y * 2) % 17), 0, 255) : (byte)58;
-                byte b = facePatch ? (byte)Math.Clamp(92 + ((x * 3 + y * 5) % 13), 0, 255) : (byte)76;
+                double blemishShape = Math.Exp(-((x - width * 0.5) * (x - width * 0.5) +
+                                                 (y - height * 0.5) * (y - height * 0.5)) / (2.0 * 18.0 * 18.0));
+                int blemish = facePatch ? (int)Math.Round(34.0 * blemishShape) : 0;
+                byte r = facePatch ? (byte)Math.Clamp(178 + ((x * 7 + y * 3) % 19) + blemish, 0, 255) : (byte)48;
+                byte g = facePatch ? (byte)Math.Clamp(118 + ((x * 5 + y * 2) % 17) + blemish / 3, 0, 255) : (byte)58;
+                byte b = facePatch ? (byte)Math.Clamp(92 + ((x * 3 + y * 5) % 13) + blemish / 5, 0, 255) : (byte)76;
                 pixels[index] = b;
                 pixels[index + 1] = g;
                 pixels[index + 2] = r;
@@ -256,9 +260,9 @@ public static class SkinRetouchProcessor
     private static int ComputeNeighborhoodRadius(int width, int height, double strength)
     {
         int shortestSide = Math.Min(width, height);
-        int resolutionRadius = (int)Math.Round(shortestSide * 0.0035, MidpointRounding.AwayFromZero);
+        int resolutionRadius = (int)Math.Round(shortestSide * 0.006, MidpointRounding.AwayFromZero);
         int strengthRadius = strength >= 0.72 ? 1 : 0;
-        return Math.Clamp(Math.Max(2, resolutionRadius) + strengthRadius, 2, 12);
+        return Math.Clamp(Math.Max(3, resolutionRadius) + strengthRadius, 3, 16);
     }
 
     private static int[] BuildSampleOffsets(int radius)
