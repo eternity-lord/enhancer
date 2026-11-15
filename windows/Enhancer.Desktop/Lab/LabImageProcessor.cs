@@ -28,11 +28,6 @@ public static class LabImageProcessor
         double vibrance = Math.Clamp(adjustments.Vibrance, -1.0, 1.0);
         double highlights = Math.Clamp(adjustments.Highlights, -1.0, 1.0);
         double shadows = Math.Clamp(adjustments.Shadows, -1.0, 1.0);
-        double clarity = Math.Clamp(adjustments.Clarity, -1.0, 1.0);
-        double skinSmooth = Math.Clamp(adjustments.SkinSmoothing, 0.0, 1.0);
-        double faceLight = Math.Clamp(adjustments.FaceLight, 0.0, 1.0);
-        double eyeDetail = Math.Clamp(adjustments.EyeDetail, 0.0, 1.0);
-        double teeth = Math.Clamp(adjustments.TeethWhiten, 0.0, 1.0);
         double sharpening = Math.Clamp(adjustments.Sharpening, 0.0, 1.0);
         double vignette = Math.Clamp(adjustments.Vignette, 0.0, 1.0);
         double grain = Math.Clamp(adjustments.Grain, 0.0, 1.0);
@@ -46,33 +41,12 @@ public static class LabImageProcessor
         double shadowSaturation = Math.Clamp(adjustments.ShadowSaturation, 0.0, 1.0);
         double highlightHue = Math.Clamp(adjustments.HighlightHue, -1.0, 1.0);
         double highlightSaturation = Math.Clamp(adjustments.HighlightSaturation, 0.0, 1.0);
-        double manualRetouchStrength = Math.Clamp(adjustments.ManualRetouchStrength, 0.0, 1.0);
         IReadOnlyList<LabMaskStroke> maskStrokes = adjustments.MaskStrokes ?? new List<LabMaskStroke>();
-        bool hasRetouchMask = maskStrokes.Any(stroke => stroke.Retouch && !stroke.Erase);
 
-        // A painted retouch area is actionable on its own: it supplies a restrained baseline
-        // even when the user has not touched every individual slider. The visible strength is
-        // still bounded and only affects the orange mask, never the whole photograph.
-        double localSkinSmooth = skinSmooth;
-        double localFaceLight = faceLight;
-        double localEyeDetail = eyeDetail;
-        double localTeeth = teeth;
-        double localSharpening = sharpening;
-        if (hasRetouchMask)
-        {
-            localSkinSmooth = Math.Max(localSkinSmooth, manualRetouchStrength * 0.70);
-            localFaceLight = Math.Max(localFaceLight, manualRetouchStrength * 0.18);
-            localEyeDetail = Math.Max(localEyeDetail, manualRetouchStrength * 0.34);
-            localTeeth = Math.Max(localTeeth, manualRetouchStrength * 0.18);
-            localSharpening = Math.Max(localSharpening, manualRetouchStrength * 0.14);
-        }
-
-        // The Lab retouch is intentionally local: it identifies likely skin and tooth tones
-        // instead of applying a plastic blur to the entire image. Strong masked smoothing uses
-        // a 5x5 neighborhood; ordinary controls stay on the faster 3x3 neighborhood.
-        bool needsNeighborhood = localSkinSmooth > 0.001 || clarity > 0.001 ||
-                                 localSharpening > 0.001 || localEyeDetail > 0.001;
-        int neighborhoodRadius = hasRetouchMask && localSkinSmooth > 0.35 ? 2 : 1;
+        // Lab is color/tone only. Protection strokes are retained for identity-safe clarity and
+        // sharpening; all legacy orange retouch strokes are ignored and handled by SkinRetouchWindow.
+        bool needsNeighborhood = clarity > 0.001 || sharpening > 0.001;
+        const int neighborhoodRadius = 1;
 
         Parallel.For(0, height, new ParallelOptions
         {
@@ -87,21 +61,12 @@ public static class LabImageProcessor
                 double b = input[index] / 255.0;
                 double g = input[index + 1] / 255.0;
                 double r = input[index + 2] / 255.0;
-                double originalR = r;
-                double originalG = g;
-                double originalB = b;
                 double normalizedX = x / Math.Max(1.0, width - 1.0);
                 double normalizedY = y / Math.Max(1.0, height - 1.0);
                 double protection = adjustments.FaceProtection && maskStrokes.Count > 0
                     ? ProtectionMask(maskStrokes, normalizedX, normalizedY)
                     : 0.0;
                 double unprotected = 1.0 - protection;
-                double retouchMask = hasRetouchMask
-                    ? RetouchMask(maskStrokes, normalizedX, normalizedY)
-                    : 1.0;
-                double retouchScope = retouchMask * unprotected;
-                double localRetouchBoost = 1.0 + manualRetouchStrength *
-                    (hasRetouchMask ? 1.8 * retouchMask : 0.35);
 
                 double avgR = r;
                 double avgG = g;
@@ -177,47 +142,13 @@ public static class LabImageProcessor
                 ApplyColorWheel(ref r, ref g, ref b, shadowHue, shadowSaturation, shadowGrade);
                 ApplyColorWheel(ref r, ref g, ref b, highlightHue, highlightSaturation, highlightGrade);
 
-                double skinConfidence = SkinMask(originalR, originalG, originalB);
-                double skin = (hasRetouchMask ? Math.Max(0.55, skinConfidence) : skinConfidence) * retouchScope;
-                if (skin > 0.01 && localSkinSmooth > 0.001)
-                {
-                    double blend = Math.Clamp(skin * localSkinSmooth * 0.72 * localRetouchBoost, 0, 0.96);
-                    r = Lerp(r, avgR, blend);
-                    g = Lerp(g, avgG, blend);
-                    b = Lerp(b, avgB, blend);
-                }
-                if (skin > 0.01 && localFaceLight > 0.001)
-                {
-                    double lift = Math.Min(0.22, skin * localFaceLight * 0.10 * localRetouchBoost);
-                    r += lift;
-                    g += lift;
-                    b += lift;
-                }
-
-                // Low-saturation, bright warm pixels are a conservative teeth/highlight mask.
-                // It avoids whitening the whole image while remaining useful on a close portrait.
-                double localSat = ColorSaturation(r, g, b);
-                double toothMask = Math.Clamp((luminance - 0.52) / 0.42, 0, 1) *
-                                   Math.Clamp((0.34 - localSat) / 0.34, 0, 1) *
-                                   Math.Clamp((r - b + 0.15) / 0.55, 0, 1) *
-                                   retouchScope;
-                if (localTeeth > 0.001 && toothMask > 0.01)
-                {
-                    double whiten = Math.Min(0.28, toothMask * localTeeth * 0.13 * localRetouchBoost);
-                    r += whiten;
-                    g += whiten;
-                    b += whiten * 1.08;
-                    hsvValue = Math.Clamp(hsvValue + whiten * 0.35, 0, 1);
-                }
-
                 if (needsNeighborhood)
                 {
                     double highPassR = r - avgR;
                     double highPassG = g - avgG;
                     double highPassB = b - avgB;
-                    double detail = ((clarity * 0.32) + (localSharpening * 0.22)) *
-                                    (0.15 + unprotected * 0.85) +
-                                    localEyeDetail * 0.16 * retouchScope * localRetouchBoost;
+                    double detail = ((clarity * 0.32) + (sharpening * 0.22)) *
+                                    (0.15 + unprotected * 0.85);
                     r += highPassR * detail;
                     g += highPassG * detail;
                     b += highPassB * detail;
@@ -297,18 +228,13 @@ public static class LabImageProcessor
         return t * t * (3 - 2 * t);
     }
 
-    private static double ProtectionMask(IReadOnlyList<LabMaskStroke> strokes, double x, double y) =>
-        PaintedMask(strokes, x, y, retouch: false);
-
-    private static double RetouchMask(IReadOnlyList<LabMaskStroke> strokes, double x, double y) =>
-        PaintedMask(strokes, x, y, retouch: true);
-
-    private static double PaintedMask(IReadOnlyList<LabMaskStroke> strokes, double x, double y, bool retouch)
+    private static double ProtectionMask(IReadOnlyList<LabMaskStroke> strokes, double x, double y)
     {
         double mask = 0;
         foreach (LabMaskStroke stroke in strokes)
         {
-            if (stroke.Retouch != retouch) continue;
+            // Retouch strokes from legacy Lab presets are not part of the Lab pipeline.
+            if (stroke.Retouch) continue;
             double radius = Math.Clamp(stroke.Radius, 0.002, 1.0);
             double dx = x - Math.Clamp(stroke.X, 0, 1);
             double dy = y - Math.Clamp(stroke.Y, 0, 1);
@@ -369,25 +295,6 @@ public static class LabImageProcessor
         r = Lerp(r, tr, blend);
         g = Lerp(g, tg, blend);
         b = Lerp(b, tb, blend);
-    }
-
-    private static double SkinMask(double r, double g, double b)
-    {
-        double max = Math.Max(r, Math.Max(g, b));
-        double min = Math.Min(r, Math.Min(g, b));
-        double saturation = max <= 0.0001 ? 0 : (max - min) / max;
-        bool warm = r > g * 0.82 && g > b * 0.78 && r > b * 1.12;
-        bool plausible = r > 0.16 && g > 0.09 && b > 0.05 && saturation > 0.08 && saturation < 0.82;
-        if (!warm || !plausible) return 0;
-        double hueBias = Math.Clamp((r - b) / 0.55, 0, 1);
-        return Math.Clamp(hueBias * (1.0 - Math.Abs(saturation - 0.38) / 0.55), 0, 1);
-    }
-
-    private static double ColorSaturation(double r, double g, double b)
-    {
-        double max = Math.Max(r, Math.Max(g, b));
-        double min = Math.Min(r, Math.Min(g, b));
-        return max <= 0.0001 ? 0 : (max - min) / max;
     }
 
     private static double Lerp(double a, double b, double t) => a + (b - a) * Math.Clamp(t, 0, 1);

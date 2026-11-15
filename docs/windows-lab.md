@@ -24,8 +24,9 @@ VRAM/shared-memory values, Vulkan visibility, and the native runtime summary.
 
 ## Lab
 
-**Lab** is a separate, non-destructive WPF room opened from the main Studio header. It is fully
-offline and does not alter the source file until the user saves a result.
+**Lab** is a separate, non-destructive WPF color/tone room opened from the main Studio header. It is fully
+offline and does not alter the source file until the user saves a result. Skin retouch is intentionally
+not executed by Lab anymore.
 
 ### Included controls
 
@@ -33,18 +34,25 @@ offline and does not alter the source file until the user saves a result.
 - Exposure, contrast, highlights, shadows, black point, white point
 - Temperature, tint, saturation, vibrance
 - Clarity, sharpening, vignette, film grain, fade, monochrome
-- Conservative local portrait retouch: skin smoothing, face light, eye detail and teeth whitening
 - Five-point RGB tone curves plus shadow/highlight color-wheel hue and saturation controls
-- Painted, normalized masks with two independent roles: a green protection mask for identity-critical
-  areas and an orange retouch-area mask that scopes a stronger manual retouch. Both can be painted or
-  erased directly over the preview.
-- Strong local manual retouch (skin smoothing, face light, eye detail, teeth whitening and sharpening)
-  stays a deterministic pixel operation; it is not the full AI face reconstruction path.
+- A green normalized face-protection mask for identity-critical areas; legacy orange retouch strokes are ignored by Lab
 - Modern built-in looks: Natural Portrait, Portrait Glow, Clean Studio, Golden Hour, Cinematic Teal &
   Orange, Matte Film, HDR Detail Pop, and Fine Art Black & White
 - Before/after toggle, fit/100%/200% preview, histogram summary, undo/redo and reset
-- Batch apply the current look to multiple images, writing collision-safe `_Lab` outputs beside originals
+- Batch apply the current color/tone look to multiple images, writing collision-safe `_Lab` outputs beside originals
 - PNG and full-quality JPEG export
+
+### Dedicated Skin Retouch workspace
+
+The **Skin Retouch** button in the main Studio header opens a separate local workspace. It is a simple,
+deterministic pixel operation rather than full AI face reconstruction:
+
+- Paint an orange mask over cheeks/forehead or another selected skin area; erase is available.
+- Retouch strength and texture-preservation controls affect only the painted mask.
+- A changed-pixel report makes a no-op obvious instead of treating an overlay as proof of processing.
+- Before/after preview, offline CPU-safe rendering, and collision-safe JPEG/PNG copy export preserve the original.
+- The Windows smoke test runs a masked retouch regression case and fails if a painted mask changes zero pixels.
+
 
 ### Preset interchange
 

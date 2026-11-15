@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:loc="clr-namespace:Enhancer.Desktop.Localization"
-        Title="Enhancer Lab — Offline Retouch &amp; Color"
+        Title="Enhancer Lab — Offline Color &amp; Tone"
         Width="1500"
         Height="940"
         MinWidth="1160"
@@ -64,27 +64,19 @@
 
                         <Border Background="#141E30" BorderBrush="#263449" BorderThickness="1" CornerRadius="8" Padding="10" Margin="0,0,0,12">
                             <StackPanel>
-                                <TextBlock Text="PORTRAIT RETOUCH" FontSize="11" FontWeight="Bold" Foreground="#A5B4FC" Margin="0,0,0,8" />
+                                <TextBlock Text="COLOR LAB / LAB رنگ" FontSize="11" FontWeight="Bold" Foreground="#A5B4FC" Margin="0,0,0,8" />
+                                <TextBlock Text="Skin retouch is no longer executed in Lab. Open the dedicated Skin Retouch workspace from the Studio header so the selected mask, renderer and changed-pixel result stay isolated." TextWrapping="Wrap" FontSize="10.5" Foreground="#CBD5E1" Margin="0,0,0,9" />
+                                <Button Content="Open Skin Retouch Workspace" Style="{StaticResource PrimaryStudioButton}" Padding="8,5" Margin="0,0,0,10" Click="BtnOpenSkinRetouch_Click" />
                                 <CheckBox x:Name="ChkMonochrome" Content="Black &amp; White / سیاه‌وسفید" Checked="CheckChanged" Unchecked="CheckChanged" Margin="0,0,0,8" />
                                 <CheckBox x:Name="ChkFaceProtection" Content="Protect painted face mask" IsChecked="True" Checked="CheckChanged" Unchecked="CheckChanged" Margin="0,0,0,7" />
-                                <TextBlock Text="Paint over eyes, skin or other identity-critical areas to protect them from local retouch. The mask is saved with JSON/XMP presets." TextWrapping="Wrap" FontSize="10.5" Foreground="#94A3B8" Margin="0,0,0,8" />
-                                <TextBlock Text="LOCAL RETOUCH MASK / ماسک روتوش موضعی" FontSize="10.5" FontWeight="Bold" Foreground="#FDBA74" Margin="0,2,0,5" />
-                                <TextBlock Text="Retouch strength / شدت روتوش" FontSize="10" Foreground="#CBD5E1" />
-                                <Slider x:Name="SldManualRetouchStrength" Minimum="0" Maximum="1" Value="0.75" ValueChanged="SliderChanged" />
-                                <TextBlock x:Name="TxtManualRetouchStrength" Text="+75%" Style="{StaticResource LabValue}" Margin="0,0,0,5" />
-                                <Button Content="Strong Local Retouch" Style="{StaticResource SecondaryStudioButton}" Padding="8,5" Margin="0,0,0,7" Click="BtnStrongManualRetouch_Click" />
+                                <TextBlock Text="Paint over eyes, skin or other identity-critical areas to protect them from color/clarity edits. Green = protected; red = erase." TextWrapping="Wrap" FontSize="10.5" Foreground="#94A3B8" Margin="0,0,0,8" />
                                 <TextBlock Text="Mask brush size / اندازه قلم" FontSize="10" Foreground="#CBD5E1" Margin="0,2,0,0" />
-                                <Slider x:Name="SldMaskBrush" Minimum="0.01" Maximum="0.28" Value="0.08" ToolTip="Mask brush size" />
-                                <StackPanel Orientation="Horizontal" Margin="0,3,0,4">
-                                    <Button x:Name="BtnPaintRetouch" Content="Paint Retouch Area" Style="{StaticResource SecondaryStudioButton}" Padding="7,5" Margin="0,0,5,0" Click="BtnPaintRetouch_Click" />
-                                    <Button x:Name="BtnEraseRetouch" Content="Erase Retouch Area" Style="{StaticResource SecondaryStudioButton}" Padding="7,5" Click="BtnEraseRetouch_Click" />
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal">
+                                <Slider x:Name="SldMaskBrush" Minimum="0.01" Maximum="0.28" Value="0.08" ToolTip="Protection mask brush size" />
+                                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
                                     <Button x:Name="BtnPaintMask" Content="Paint Protect Mask" Style="{StaticResource SecondaryStudioButton}" Padding="7,5" Margin="0,0,5,0" Click="BtnPaintMask_Click" />
                                     <Button x:Name="BtnEraseMask" Content="Erase Protect Mask" Style="{StaticResource SecondaryStudioButton}" Padding="7,5" Margin="0,0,5,0" Click="BtnEraseMask_Click" />
                                     <Button Content="Clear" Style="{StaticResource SecondaryStudioButton}" Padding="7,5" Click="BtnClearMask_Click" />
                                 </StackPanel>
-                                <TextBlock Text="Orange = selected area for stronger manual retouch; painting orange alone activates the local baseline. Green = protect identity-critical areas. Red = erase mask." TextWrapping="Wrap" FontSize="10" Foreground="#64748B" Margin="0,8,0,0" />
                             </StackPanel>
                         </Border>
 
@@ -98,7 +90,7 @@
                         <Border Background="#111827" BorderBrush="#263449" BorderThickness="1" CornerRadius="8" Padding="10">
                             <StackPanel>
                                 <TextBlock Text="PRO WORKFLOW" FontSize="11" FontWeight="Bold" Foreground="#34D399" Margin="0,0,0,7" />
-                                <TextBlock Text="• Non-destructive original + live preview&#x0a;• Undo / redo history&#x0a;• Strong local retouch with painted area mask&#x0a;• Painted protection masks for identity safety&#x0a;• RGB curves and shadow/highlight wheels&#x0a;• Adobe Camera Raw XMP import&#x0a;• Batch apply beside originals&#x0a;• Portable .enhancerpreset JSON export&#x0a;• High-quality PNG / JPEG export" TextWrapping="Wrap" FontSize="10.5" Foreground="#CBD5E1" />
+                                <TextBlock Text="• Non-destructive original + live preview&#x0a;• Undo / redo history&#x0a;• Dedicated Skin Retouch workspace from the Studio header&#x0a;• Painted protection masks for identity safety&#x0a;• RGB curves and shadow/highlight wheels&#x0a;• Adobe Camera Raw XMP import&#x0a;• Batch apply beside originals&#x0a;• Portable .enhancerpreset JSON export&#x0a;• High-quality PNG / JPEG export" TextWrapping="Wrap" FontSize="10.5" Foreground="#CBD5E1" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -207,23 +199,11 @@
                         <Slider x:Name="SldHighlightSaturation" Minimum="0" Maximum="1" Value="0" ValueChanged="SliderChanged" />
                         <TextBlock x:Name="TxtHighlightSaturation" Style="{StaticResource LabValue}" />
 
-                        <TextBlock Text="PORTRAIT &amp; DETAIL / پرتره و جزئیات" FontSize="11.5" FontWeight="Bold" Foreground="#818CF8" Margin="0,13,0,8" />
-                        <TextBlock Text="Move a slider to render the offline preview. Large photos or CPU fallback can take a few seconds; the status bar shows progress." TextWrapping="Wrap" FontSize="10" Foreground="#94A3B8" Margin="0,0,0,7" />
+                        <TextBlock Text="DETAIL / جزئیات" FontSize="11.5" FontWeight="Bold" Foreground="#818CF8" Margin="0,13,0,8" />
+                        <TextBlock Text="Color Lab adjustments render offline. Skin retouch is handled only in the dedicated Skin Retouch workspace." TextWrapping="Wrap" FontSize="10" Foreground="#94A3B8" Margin="0,0,0,7" />
                         <TextBlock Text="Clarity / وضوح موضعی" Style="{StaticResource LabLabel}" />
                         <Slider x:Name="SldClarity" Minimum="-1" Maximum="1" Value="0" ValueChanged="SliderChanged" />
                         <TextBlock x:Name="TxtClarity" Style="{StaticResource LabValue}" />
-                        <TextBlock Text="Skin Smoothing / صاف‌کردن پوست" Style="{StaticResource LabLabel}" />
-                        <Slider x:Name="SldSkinSmoothing" Minimum="0" Maximum="1" Value="0" ValueChanged="SliderChanged" />
-                        <TextBlock x:Name="TxtSkinSmoothing" Style="{StaticResource LabValue}" />
-                        <TextBlock Text="Face Light / نور چهره" Style="{StaticResource LabLabel}" />
-                        <Slider x:Name="SldFaceLight" Minimum="0" Maximum="1" Value="0" ValueChanged="SliderChanged" />
-                        <TextBlock x:Name="TxtFaceLight" Style="{StaticResource LabValue}" />
-                        <TextBlock Text="Eye Detail / جزئیات چشم" Style="{StaticResource LabLabel}" />
-                        <Slider x:Name="SldEyeDetail" Minimum="0" Maximum="1" Value="0" ValueChanged="SliderChanged" />
-                        <TextBlock x:Name="TxtEyeDetail" Style="{StaticResource LabValue}" />
-                        <TextBlock Text="Teeth Whiten / سفیدکردن دندان" Style="{StaticResource LabLabel}" />
-                        <Slider x:Name="SldTeethWhiten" Minimum="0" Maximum="1" Value="0" ValueChanged="SliderChanged" />
-                        <TextBlock x:Name="TxtTeethWhiten" Style="{StaticResource LabValue}" />
                         <TextBlock Text="Sharpening / شارپنس" Style="{StaticResource LabLabel}" />
                         <Slider x:Name="SldSharpening" Minimum="0" Maximum="1" Value="0" ValueChanged="SliderChanged" />
                         <TextBlock x:Name="TxtSharpening" Style="{StaticResource LabValue}" />

@@ -28,7 +28,8 @@ public sealed class Strings : INotifyPropertyChanged
         ? "افزایش کیفیت، بازسازی چهره، نور و اتاق LAB برای رتوش و رنگ — کاملاً آفلاین"
         : "Offline AI Super-Resolution, CodeFormer Face Restoration, Smart HDR & LAB — Windows x64";
     public string CreditBadge => _isPersian ? "ساخته شده توسط محمد ایرانی" : "Built by Mohammad Irani";
-    public string LabBtn => _isPersian ? "LAB — روتوش و رنگ" : "LAB — Retouch & Color";
+    public string SkinRetouchBtn => _isPersian ? "روتوش پوست" : "Skin Retouch";
+    public string LabBtn => _isPersian ? "LAB — رنگ و نور" : "LAB — Color & Tone";
     public string DiagnosticsBtn => _isPersian ? "عیب‌یابی و تست موتور" : "Diagnostics & Tests";
 
     // Left Queue Panel

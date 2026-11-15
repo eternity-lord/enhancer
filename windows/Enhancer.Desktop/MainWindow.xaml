@@ -104,8 +104,12 @@
 
                 <!-- Right Header Actions -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Content="{Binding Source={x:Static loc:Strings.Instance}, Path=LabBtn}"
+                    <Button Content="{Binding Source={x:Static loc:Strings.Instance}, Path=SkinRetouchBtn}"
                             Style="{StaticResource PrimaryStudioButton}"
+                            Margin="0,0,8,0"
+                            Click="BtnSkinRetouch_Click" />
+                    <Button Content="{Binding Source={x:Static loc:Strings.Instance}, Path=LabBtn}"
+                            Style="{StaticResource SecondaryStudioButton}"
                             Margin="0,0,8,0"
                             Click="BtnLab_Click" />
                     <Button Content="{Binding Source={x:Static loc:Strings.Instance}, Path=DiagnosticsBtn}"

@@ -7,8 +7,9 @@ namespace Enhancer.Desktop.Lab;
 /// <summary>
 /// A normalized paint stroke in the Lab protection mask. X/Y and Radius are relative to the
 /// image bounds so a preset remains portable at any preview zoom and source resolution.
-/// Positive protection strokes protect local portrait retouching; Retouch strokes select a face
-/// area for stronger manual retouching; erase strokes subtract the corresponding mask.
+/// Protection strokes keep identity-critical pixels out of Lab clarity/sharpening. The Retouch
+/// property remains only for backwards-compatible preset deserialization; Lab no longer executes
+/// those legacy orange strokes because local skin retouch now belongs to the dedicated workspace.
 /// </summary>
 public sealed class LabMaskStroke
 {
@@ -71,9 +72,9 @@ public sealed class LabAdjustments
     public double HighlightHue { get; set; }
     public double HighlightSaturation { get; set; }
 
-    // Stronger manual local retouch is still a deterministic pixel operation, not AI face
-    // reconstruction. It is applied at the painted retouch mask location.
-    public double ManualRetouchStrength { get; set; } = 0.75;
+    // Legacy fields are retained so old JSON/XMP presets still deserialize. Lab does not execute
+    // these values; SkinRetouchSettings owns the dedicated local skin operation now.
+    public double ManualRetouchStrength { get; set; } = 0.0;
 
     // Painted protection mask and the face-protection master switch are part of the preset.
     public bool FaceProtection { get; set; } = true;

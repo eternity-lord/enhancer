@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using Enhancer.Desktop.Models;
 using Enhancer.Desktop.Native;
+using Enhancer.Desktop.Retouch;
 
 namespace Enhancer.Desktop;
 
@@ -60,6 +61,14 @@ public partial class App : Application
             Console.WriteLine($"[SmokeTest] ModelsDir={modelsDir}");
             Console.WriteLine($"[SmokeTest] CPU={threads} ({bigCores} big), RAM={availMb}/{totalMb} MB, DXGIAdapters={adapters.Count}, VulkanGPUs={gpus.Count}");
             Console.WriteLine($"[SmokeTest] Diag={diag}");
+
+            bool skinRetouchPass = SkinRetouchProcessor.RunSelfTest(out var skinRetouchResult);
+            Console.WriteLine($"[SmokeTest] SkinRetouch mask={skinRetouchResult.MaskedPixels}, changed={skinRetouchResult.ChangedPixels}, maxDelta={skinRetouchResult.MaxChannelDelta}");
+            if (!skinRetouchPass)
+            {
+                Console.Error.WriteLine("[SmokeTest FAILED] Skin retouch mask produced no visible pixel change.");
+                return 4;
+            }
 
             // Synthesize a 64x48 test image in RGBA8888 and run the v3.2 Ultra identity-safe
             // Photo x4 profile with native output and 300 DPI JPEG 4:4:4.

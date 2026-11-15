@@ -9,6 +9,7 @@ using System.Windows.Media.Imaging;
 using Enhancer.Desktop.Localization;
 using Enhancer.Desktop.Models;
 using Enhancer.Desktop.Native;
+using Enhancer.Desktop.Retouch;
 using Microsoft.Win32;
 
 namespace Enhancer.Desktop.Lab;
@@ -33,7 +34,6 @@ public partial class LabWindow : Window
     private bool _showOriginal;
     private bool _maskEditing;
     private bool _eraseMask;
-    private bool _retouchMaskMode;
     private bool _maskUndoPushed;
     private Point? _lastMaskPoint;
     private int _renderVersion;
@@ -235,38 +235,24 @@ public partial class LabWindow : Window
 
     private void BtnPaintMask_Click(object sender, RoutedEventArgs e)
     {
-        SetMaskMode(!_maskEditing || _eraseMask || _retouchMaskMode, false, false);
+        SetMaskMode(!_maskEditing || _eraseMask, false);
     }
 
     private void BtnEraseMask_Click(object sender, RoutedEventArgs e)
     {
-        SetMaskMode(!_maskEditing || !_eraseMask || _retouchMaskMode, true, false);
+        SetMaskMode(!_maskEditing || !_eraseMask, true);
     }
 
-    private void BtnPaintRetouch_Click(object sender, RoutedEventArgs e)
+    private void BtnOpenSkinRetouch_Click(object sender, RoutedEventArgs e)
     {
-        SetMaskMode(!_maskEditing || _eraseMask || !_retouchMaskMode, false, true);
-    }
+        if (string.IsNullOrWhiteSpace(_sourceImagePath) || !File.Exists(_sourceImagePath))
+        {
+            BtnOpenImage_Click(sender, e);
+            if (string.IsNullOrWhiteSpace(_sourceImagePath) || !File.Exists(_sourceImagePath)) return;
+        }
 
-    private void BtnEraseRetouch_Click(object sender, RoutedEventArgs e)
-    {
-        SetMaskMode(!_maskEditing || !_eraseMask || !_retouchMaskMode, true, true);
-    }
-
-    private void BtnStrongManualRetouch_Click(object sender, RoutedEventArgs e)
-    {
-        if (_original == null) return;
-        PushUndo();
-        LabAdjustments stronger = _adjustments.Clone();
-        stronger.ManualRetouchStrength = 0.9;
-        stronger.SkinSmoothing = Math.Max(stronger.SkinSmoothing, 0.72);
-        stronger.FaceLight = Math.Max(stronger.FaceLight, 0.28);
-        stronger.EyeDetail = Math.Max(stronger.EyeDetail, 0.42);
-        stronger.TeethWhiten = Math.Max(stronger.TeethWhiten, 0.28);
-        stronger.Sharpening = Math.Max(stronger.Sharpening, 0.18);
-        CmbPreset.SelectedIndex = -1;
-        SetAdjustments(stronger);
-        TxtPreviewMode.Text = "STRONG LOCAL RETOUCH • paint the orange mask over the face";
+        var dialog = new SkinRetouchWindow(_sourceImagePath) { Owner = this };
+        dialog.ShowDialog();
     }
 
     private void BtnClearMask_Click(object sender, RoutedEventArgs e)
@@ -279,22 +265,19 @@ public partial class LabWindow : Window
         TxtPreviewMode.Text = "FACE PROTECTION MASK CLEARED";
     }
 
-    private void SetMaskMode(bool enabled, bool erase, bool retouch)
+    private void SetMaskMode(bool enabled, bool erase)
     {
         _maskEditing = enabled;
         _eraseMask = erase;
-        _retouchMaskMode = retouch;
         MaskCanvas.IsHitTestVisible = enabled;
-        BtnPaintMask.Content = enabled && !erase && !retouch ? "Painting Protect Mask" : "Paint Protect Mask";
-        BtnEraseMask.Content = enabled && erase && !retouch ? "Erasing Protect Mask" : "Erase Protect Mask";
-        BtnPaintRetouch.Content = enabled && !erase && retouch ? "Painting Retouch Area" : "Paint Retouch Area";
-        BtnEraseRetouch.Content = enabled && erase && retouch ? "Erasing Retouch Area" : "Erase Retouch Area";
+        BtnPaintMask.Content = enabled && !erase ? "Painting Protect Mask" : "Paint Protect Mask";
+        BtnEraseMask.Content = enabled && erase ? "Erasing Protect Mask" : "Erase Protect Mask";
         MaskCanvas.Opacity = enabled ? 0.92 : 0.0;
         if (enabled)
         {
-            TxtPreviewMode.Text = retouch
-                ? (erase ? "RETOUCH MASK ERASE • remove the orange area" : "RETOUCH MASK PAINT • select the face area")
-                : (erase ? "PROTECT MASK ERASE • remove the protected area" : "PROTECT MASK PAINT • protect identity-critical areas");
+            TxtPreviewMode.Text = erase
+                ? "PROTECT MASK ERASE • remove the protected area"
+                : "PROTECT MASK PAINT • protect identity-critical areas";
         }
     }
 
@@ -351,7 +334,7 @@ public partial class LabWindow : Window
             Radius = Math.Clamp(SldMaskBrush.Value, 0.01, 0.45),
             Opacity = 0.88,
             Erase = _eraseMask,
-            Retouch = _retouchMaskMode
+            Retouch = false
         });
         _lastMaskPoint = point;
         UpdateMaskOverlay();
@@ -369,13 +352,14 @@ public partial class LabWindow : Window
         double height = imageRect.Height;
         foreach (LabMaskStroke stroke in _adjustments.MaskStrokes)
         {
+            // Retouch strokes from older Lab presets are intentionally ignored here; the
+            // dedicated Skin Retouch workspace owns that operation now.
+            if (stroke.Retouch) continue;
             double radiusX = Math.Max(2, stroke.Radius * width);
             double radiusY = Math.Max(2, stroke.Radius * height);
             Color overlayColor = stroke.Erase
                 ? Color.FromRgb(248, 113, 113)
-                : stroke.Retouch
-                    ? Color.FromRgb(251, 146, 60)
-                    : Color.FromRgb(52, 211, 153);
+                : Color.FromRgb(52, 211, 153);
             var ellipse = new System.Windows.Shapes.Ellipse
             {
                 Width = radiusX * 2,
@@ -439,10 +423,6 @@ public partial class LabWindow : Window
             SldSaturation.Value = _adjustments.Saturation;
             SldVibrance.Value = _adjustments.Vibrance;
             SldClarity.Value = _adjustments.Clarity;
-            SldSkinSmoothing.Value = _adjustments.SkinSmoothing;
-            SldFaceLight.Value = _adjustments.FaceLight;
-            SldEyeDetail.Value = _adjustments.EyeDetail;
-            SldTeethWhiten.Value = _adjustments.TeethWhiten;
             SldSharpening.Value = _adjustments.Sharpening;
             SldVignette.Value = _adjustments.Vignette;
             SldGrain.Value = _adjustments.Grain;
@@ -456,7 +436,6 @@ public partial class LabWindow : Window
             SldShadowSaturation.Value = _adjustments.ShadowSaturation;
             SldHighlightHue.Value = _adjustments.HighlightHue;
             SldHighlightSaturation.Value = _adjustments.HighlightSaturation;
-            SldManualRetouchStrength.Value = _adjustments.ManualRetouchStrength;
             ChkMonochrome.IsChecked = _adjustments.Monochrome;
             ChkFaceProtection.IsChecked = _adjustments.FaceProtection;
         }
@@ -482,10 +461,6 @@ public partial class LabWindow : Window
         Saturation = SldSaturation.Value,
         Vibrance = SldVibrance.Value,
         Clarity = SldClarity.Value,
-        SkinSmoothing = SldSkinSmoothing.Value,
-        FaceLight = SldFaceLight.Value,
-        EyeDetail = SldEyeDetail.Value,
-        TeethWhiten = SldTeethWhiten.Value,
         Sharpening = SldSharpening.Value,
         Vignette = SldVignette.Value,
         Grain = SldGrain.Value,
@@ -499,7 +474,6 @@ public partial class LabWindow : Window
         ShadowSaturation = SldShadowSaturation.Value,
         HighlightHue = SldHighlightHue.Value,
         HighlightSaturation = SldHighlightSaturation.Value,
-        ManualRetouchStrength = SldManualRetouchStrength.Value,
         Monochrome = ChkMonochrome.IsChecked == true,
         FaceProtection = ChkFaceProtection.IsChecked != false,
         MaskStrokes = _adjustments.MaskStrokes?.Select(stroke => stroke.Clone()).ToList() ?? new()
@@ -519,10 +493,6 @@ public partial class LabWindow : Window
         TxtSaturation.Text = Percent(SldSaturation.Value);
         TxtVibrance.Text = Percent(SldVibrance.Value);
         TxtClarity.Text = Percent(SldClarity.Value);
-        TxtSkinSmoothing.Text = Percent(SldSkinSmoothing.Value);
-        TxtFaceLight.Text = Percent(SldFaceLight.Value);
-        TxtEyeDetail.Text = Percent(SldEyeDetail.Value);
-        TxtTeethWhiten.Text = Percent(SldTeethWhiten.Value);
         TxtSharpening.Text = Percent(SldSharpening.Value);
         TxtVignette.Text = Percent(SldVignette.Value);
         TxtGrain.Text = Percent(SldGrain.Value);
@@ -536,7 +506,6 @@ public partial class LabWindow : Window
         TxtShadowSaturation.Text = Percent(SldShadowSaturation.Value);
         TxtHighlightHue.Text = Percent(SldHighlightHue.Value);
         TxtHighlightSaturation.Text = Percent(SldHighlightSaturation.Value);
-        TxtManualRetouchStrength.Text = Percent(SldManualRetouchStrength.Value);
     }
 
     private static string Signed(double value, string suffix = "") =>
@@ -570,8 +539,8 @@ public partial class LabWindow : Window
             _current = rendered;
             ImgPreview.Source = _showOriginal ? _original : _current;
             UpdateHistogram();
-            string maskStatus = snapshot.MaskStrokes?.Any(stroke => stroke.Retouch && !stroke.Erase) == true
-                ? " • orange retouch mask active"
+            string maskStatus = snapshot.MaskStrokes?.Any(stroke => !stroke.Retouch && !stroke.Erase) == true
+                ? " • green protection mask active"
                 : string.Empty;
             TxtPreviewMode.Text = _showOriginal
                 ? $"ORIGINAL / قبل • preview ready in {stopwatch.Elapsed.TotalSeconds:0.0}s"

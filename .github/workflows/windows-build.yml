@@ -113,20 +113,24 @@ jobs:
           Copy-Item -Force "README.md" (Join-Path $StageDir "README.md")
           Write-Host "Staged files count in models: $((Get-ChildItem $StageModels).Count)"
 
-      - name: Verify Lab UI & Windows adapter inventory sources are included
+      - name: Verify Lab and dedicated Skin Retouch sources are included
         shell: pwsh
         run: |
-          $RequiredLabSources = @(
+          $RequiredSources = @(
             "windows\Enhancer.Desktop\Lab\LabWindow.xaml",
             "windows\Enhancer.Desktop\Lab\LabWindow.xaml.cs",
             "windows\Enhancer.Desktop\Lab\LabModels.cs",
             "windows\Enhancer.Desktop\Lab\LabImageProcessor.cs",
+            "windows\Enhancer.Desktop\Retouch\SkinRetouchWindow.xaml",
+            "windows\Enhancer.Desktop\Retouch\SkinRetouchWindow.xaml.cs",
+            "windows\Enhancer.Desktop\Retouch\SkinRetouchModels.cs",
+            "windows\Enhancer.Desktop\Retouch\SkinRetouchProcessor.cs",
             "windows\native\windows_gpu_inventory.cpp"
           )
-          foreach ($source in $RequiredLabSources) {
-            if (-not (Test-Path $source)) { throw "Lab/GPU compatibility source is missing: $source" }
+          foreach ($source in $RequiredSources) {
+            if (-not (Test-Path $source)) { throw "Lab/Skin Retouch/GPU source is missing: $source" }
           }
-          Write-Host "Verified Lab controls, preset interchange, local image processor, and DXGI inventory sources."
+          Write-Host "Verified color-only Lab, dedicated local Skin Retouch workspace, preset interchange, and DXGI inventory sources."
 
       - name: Verify No-GPU Windows Compatibility (CLI Diagnostics, Native Self-Test & WPF Smoke-Test)
         shell: pwsh

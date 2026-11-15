@@ -10,6 +10,7 @@ using Enhancer.Desktop.Localization;
 using Enhancer.Desktop.Lab;
 using Enhancer.Desktop.Models;
 using Enhancer.Desktop.Native;
+using Enhancer.Desktop.Retouch;
 using Microsoft.Win32;
 
 namespace Enhancer.Desktop;
@@ -285,6 +286,34 @@ public partial class MainWindow : Window
     {
         var dlg = new DiagnosticsWindow(_modelsDir) { Owner = this };
         dlg.ShowDialog();
+    }
+
+    private void BtnSkinRetouch_Click(object sender, RoutedEventArgs e)
+    {
+        var item = LstQueue.SelectedItem as QueueImageItem ?? _queue.FirstOrDefault();
+        string? path = item != null && !string.IsNullOrWhiteSpace(item.OutputPath) && File.Exists(item.OutputPath)
+            ? item.OutputPath
+            : item?.FilePath;
+        var dlg = new SkinRetouchWindow(path) { Owner = this };
+        dlg.ShowDialog();
+
+        if (!string.IsNullOrWhiteSpace(dlg.SavedOutputPath) && File.Exists(dlg.SavedOutputPath))
+        {
+            if (item != null && !string.IsNullOrWhiteSpace(path))
+            {
+                item.OutputPath = dlg.SavedOutputPath;
+                item.OutWidth = dlg.SavedOutputWidth;
+                item.OutHeight = dlg.SavedOutputHeight;
+                item.IsDone = true;
+                item.StatusText = "Skin retouch saved";
+                DisplayQueueItemOnCanvas(item);
+                TxtStatusHeadline.Text = $"Skin retouch saved: {Path.GetFileName(dlg.SavedOutputPath)}";
+            }
+            else
+            {
+                AddPathsToQueue([dlg.SavedOutputPath]);
+            }
+        }
     }
 
     private void BtnLab_Click(object sender, RoutedEventArgs e)
