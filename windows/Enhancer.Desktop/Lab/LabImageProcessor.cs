@@ -46,7 +46,7 @@ public static class LabImageProcessor
         double shadowSaturation = Math.Clamp(adjustments.ShadowSaturation, 0.0, 1.0);
         double highlightHue = Math.Clamp(adjustments.HighlightHue, -1.0, 1.0);
         double highlightSaturation = Math.Clamp(adjustments.HighlightSaturation, 0.0, 1.0);
-        IReadOnlyList<LabMaskStroke> maskStrokes = adjustments.MaskStrokes ?? Array.Empty<LabMaskStroke>();
+        IReadOnlyList<LabMaskStroke> maskStrokes = adjustments.MaskStrokes ?? new List<LabMaskStroke>();
 
         // The Lab retouch is intentionally conservative and local: it identifies likely skin
         // and tooth tones instead of applying a plastic blur to the entire image. A 3x3 source

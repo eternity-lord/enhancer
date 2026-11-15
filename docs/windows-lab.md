@@ -34,9 +34,13 @@ offline and does not alter the source file until the user saves a result.
 - Temperature, tint, saturation, vibrance
 - Clarity, sharpening, vignette, film grain, fade, monochrome
 - Conservative local portrait retouch: skin smoothing, face light, eye detail and teeth whitening
+- Five-point RGB tone curves plus shadow/highlight color-wheel hue and saturation controls
+- Painted, normalized face-protection masks: paint or erase directly over the preview; masks protect
+  identity-critical areas from local smoothing, whitening, face light and detail operations
 - Modern built-in looks: Natural Portrait, Portrait Glow, Clean Studio, Golden Hour, Cinematic Teal &
   Orange, Matte Film, HDR Detail Pop, and Fine Art Black & White
 - Before/after toggle, fit/100%/200% preview, histogram summary, undo/redo and reset
+- Batch apply the current look to multiple images, writing collision-safe `_Lab` outputs beside originals
 - PNG and full-quality JPEG export
 
 ### Preset interchange
@@ -46,5 +50,6 @@ offline and does not alter the source file until the user saves a result.
   `Contrast2012`, `Highlights2012`, `Shadows2012`, `Vibrance`, `Clarity2012`, `Temperature`, and
   `Tint`.
 - `.xmp` export writes a small Camera Raw-compatible adjustment description. Photoshop can use it as
-  a starting point; unsupported Adobe-specific masks and local brush selections are intentionally
-  ignored instead of being silently misapplied.
+  a starting point. Enhancer's curves, color-wheel controls, face-protection switch, and normalized
+  painted strokes are carried in the `enh:` extension namespace; Adobe-specific masks that are not
+  represented by those strokes are not guessed or silently misapplied.
