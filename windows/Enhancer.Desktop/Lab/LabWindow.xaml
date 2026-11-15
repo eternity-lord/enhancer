@@ -199,6 +199,7 @@
                         <TextBlock x:Name="TxtHighlightSaturation" Style="{StaticResource LabValue}" />
 
                         <TextBlock Text="PORTRAIT &amp; DETAIL / پرتره و جزئیات" FontSize="11.5" FontWeight="Bold" Foreground="#818CF8" Margin="0,13,0,8" />
+                        <TextBlock Text="Move a slider to render the offline preview. Large photos or CPU fallback can take a few seconds; the status bar shows progress." TextWrapping="Wrap" FontSize="10" Foreground="#94A3B8" Margin="0,0,0,7" />
                         <TextBlock Text="Clarity / وضوح موضعی" Style="{StaticResource LabLabel}" />
                         <Slider x:Name="SldClarity" Minimum="-1" Maximum="1" Value="0" ValueChanged="SliderChanged" />
                         <TextBlock x:Name="TxtClarity" Style="{StaticResource LabValue}" />

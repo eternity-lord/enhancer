@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -492,12 +493,14 @@ public partial class LabWindow : Window
         CancellationToken token = _renderCancellation.Token;
         LabAdjustments snapshot = _adjustments.Clone();
         BitmapSource original = _original;
+        TxtPreviewMode.Text = $"RENDERING LAB PREVIEW • {original.PixelWidth}×{original.PixelHeight}px";
 
         _ = RenderAsync(version, original, snapshot, token);
     }
 
     private async Task RenderAsync(int version, BitmapSource original, LabAdjustments snapshot, CancellationToken token)
     {
+        Stopwatch stopwatch = Stopwatch.StartNew();
         try
         {
             BitmapSource rendered = await Task.Run(() => LabImageProcessor.Apply(original, snapshot, token), token);
@@ -505,6 +508,9 @@ public partial class LabWindow : Window
             _current = rendered;
             ImgPreview.Source = _showOriginal ? _original : _current;
             UpdateHistogram();
+            TxtPreviewMode.Text = _showOriginal
+                ? $"ORIGINAL / قبل • preview ready in {stopwatch.Elapsed.TotalSeconds:0.0}s"
+                : $"EDITED PREVIEW / بعد • rendered in {stopwatch.Elapsed.TotalSeconds:0.0}s";
         }
         catch (OperationCanceledException)
         {
