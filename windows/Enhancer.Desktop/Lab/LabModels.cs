@@ -7,7 +7,8 @@ namespace Enhancer.Desktop.Lab;
 /// <summary>
 /// A normalized paint stroke in the Lab protection mask. X/Y and Radius are relative to the
 /// image bounds so a preset remains portable at any preview zoom and source resolution.
-/// Positive strokes protect local portrait retouching; erase strokes subtract protection.
+/// Positive protection strokes protect local portrait retouching; Retouch strokes select a face
+/// area for stronger manual retouching; erase strokes subtract the corresponding mask.
 /// </summary>
 public sealed class LabMaskStroke
 {
@@ -16,6 +17,7 @@ public sealed class LabMaskStroke
     public double Radius { get; set; } = 0.08;
     public double Opacity { get; set; } = 0.85;
     public bool Erase { get; set; }
+    public bool Retouch { get; set; }
 
     public LabMaskStroke Clone() => new()
     {
@@ -23,7 +25,8 @@ public sealed class LabMaskStroke
         Y = Y,
         Radius = Radius,
         Opacity = Opacity,
-        Erase = Erase
+        Erase = Erase,
+        Retouch = Retouch
     };
 }
 
@@ -68,6 +71,10 @@ public sealed class LabAdjustments
     public double HighlightHue { get; set; }
     public double HighlightSaturation { get; set; }
 
+    // Stronger manual local retouch is still a deterministic pixel operation, not AI face
+    // reconstruction. It is applied at the painted retouch mask location.
+    public double ManualRetouchStrength { get; set; } = 0.75;
+
     // Painted protection mask and the face-protection master switch are part of the preset.
     public bool FaceProtection { get; set; } = true;
     public List<LabMaskStroke> MaskStrokes { get; set; } = new();
@@ -103,6 +110,7 @@ public sealed class LabAdjustments
         ShadowSaturation = ShadowSaturation,
         HighlightHue = HighlightHue,
         HighlightSaturation = HighlightSaturation,
+        ManualRetouchStrength = ManualRetouchStrength,
         FaceProtection = FaceProtection,
         MaskStrokes = MaskStrokes?.Select(stroke => stroke.Clone()).ToList() ?? new()
     };
@@ -139,6 +147,7 @@ public sealed class LabAdjustments
                Close(ShadowSaturation, other.ShadowSaturation) &&
                Close(HighlightHue, other.HighlightHue) &&
                Close(HighlightSaturation, other.HighlightSaturation) &&
+               Close(ManualRetouchStrength, other.ManualRetouchStrength) &&
                FaceProtection == other.FaceProtection &&
                MaskStrokesEqual(other.MaskStrokes);
     }
@@ -154,7 +163,8 @@ public sealed class LabAdjustments
                 Math.Abs(a.Y - b.Y) >= 0.0005 ||
                 Math.Abs(a.Radius - b.Radius) >= 0.0005 ||
                 Math.Abs(a.Opacity - b.Opacity) >= 0.0005 ||
-                a.Erase != b.Erase)
+                a.Erase != b.Erase ||
+                a.Retouch != b.Retouch)
             {
                 return false;
             }
@@ -258,6 +268,7 @@ public static class LabPresetSerializer
             ?? throw new InvalidDataException("The preset file is empty or invalid.");
         preset.Adjustments ??= new LabAdjustments();
         preset.Adjustments.MaskStrokes ??= new List<LabMaskStroke>();
+        preset.Adjustments.ManualRetouchStrength = Math.Clamp(preset.Adjustments.ManualRetouchStrength, 0, 1);
         return preset;
     }
 
@@ -306,6 +317,7 @@ public static class LabPresetSerializer
             ShadowSaturation = Math.Clamp(Read("ShadowSaturation") / 100.0, 0, 1),
             HighlightHue = Math.Clamp(Read("HighlightHue") / 100.0, -1, 1),
             HighlightSaturation = Math.Clamp(Read("HighlightSaturation") / 100.0, 0, 1),
+            ManualRetouchStrength = Math.Clamp(Read("ManualRetouchStrength", 75) / 100.0, 0, 1),
             FaceProtection = Read("FaceProtection", 1) > 0.5
         };
 
@@ -368,7 +380,8 @@ public static class LabPresetSerializer
                $" enh:CurveMid=\"{Invariant(a.CurveMid)}\" enh:CurveThreeQuarter=\"{Invariant(a.CurveThreeQuarter)}\"" +
                $" enh:CurveWhite=\"{Invariant(a.CurveWhite)}\" enh:ShadowHue=\"{P(a.ShadowHue)}\"" +
                $" enh:ShadowSaturation=\"{P(a.ShadowSaturation)}\" enh:HighlightHue=\"{P(a.HighlightHue)}\"" +
-               $" enh:HighlightSaturation=\"{P(a.HighlightSaturation)}\" enh:FaceProtection=\"{(a.FaceProtection ? 1 : 0)}\"" +
+               $" enh:HighlightSaturation=\"{P(a.HighlightSaturation)}\" enh:ManualRetouchStrength=\"{P(a.ManualRetouchStrength)}\"" +
+               $" enh:FaceProtection=\"{(a.FaceProtection ? 1 : 0)}\"" +
                $" enh:MaskStrokesJson=\"{maskJson}\" />\n" +
                " </rdf:RDF>\n</x:xmpmeta>\n<?xpacket end=\"w\"?>\n";
     }

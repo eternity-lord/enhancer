@@ -33,6 +33,7 @@ public partial class LabWindow : Window
     private bool _showOriginal;
     private bool _maskEditing;
     private bool _eraseMask;
+    private bool _retouchMaskMode;
     private bool _maskUndoPushed;
     private Point? _lastMaskPoint;
     private int _renderVersion;
@@ -234,12 +235,38 @@ public partial class LabWindow : Window
 
     private void BtnPaintMask_Click(object sender, RoutedEventArgs e)
     {
-        SetMaskMode(!_maskEditing || _eraseMask, false);
+        SetMaskMode(!_maskEditing || _eraseMask || _retouchMaskMode, false, false);
     }
 
     private void BtnEraseMask_Click(object sender, RoutedEventArgs e)
     {
-        SetMaskMode(!_maskEditing || !_eraseMask, true);
+        SetMaskMode(!_maskEditing || !_eraseMask || _retouchMaskMode, true, false);
+    }
+
+    private void BtnPaintRetouch_Click(object sender, RoutedEventArgs e)
+    {
+        SetMaskMode(!_maskEditing || _eraseMask || !_retouchMaskMode, false, true);
+    }
+
+    private void BtnEraseRetouch_Click(object sender, RoutedEventArgs e)
+    {
+        SetMaskMode(!_maskEditing || !_eraseMask || !_retouchMaskMode, true, true);
+    }
+
+    private void BtnStrongManualRetouch_Click(object sender, RoutedEventArgs e)
+    {
+        if (_original == null) return;
+        PushUndo();
+        LabAdjustments stronger = _adjustments.Clone();
+        stronger.ManualRetouchStrength = 0.9;
+        stronger.SkinSmoothing = Math.Max(stronger.SkinSmoothing, 0.72);
+        stronger.FaceLight = Math.Max(stronger.FaceLight, 0.28);
+        stronger.EyeDetail = Math.Max(stronger.EyeDetail, 0.42);
+        stronger.TeethWhiten = Math.Max(stronger.TeethWhiten, 0.28);
+        stronger.Sharpening = Math.Max(stronger.Sharpening, 0.18);
+        CmbPreset.SelectedIndex = -1;
+        SetAdjustments(stronger);
+        TxtPreviewMode.Text = "STRONG LOCAL RETOUCH • paint the orange mask over the face";
     }
 
     private void BtnClearMask_Click(object sender, RoutedEventArgs e)
@@ -252,17 +279,22 @@ public partial class LabWindow : Window
         TxtPreviewMode.Text = "FACE PROTECTION MASK CLEARED";
     }
 
-    private void SetMaskMode(bool enabled, bool erase)
+    private void SetMaskMode(bool enabled, bool erase, bool retouch)
     {
         _maskEditing = enabled;
         _eraseMask = erase;
+        _retouchMaskMode = retouch;
         MaskCanvas.IsHitTestVisible = enabled;
-        BtnPaintMask.Content = enabled && !erase ? "Painting Protect Mask" : "Paint Protect Mask";
-        BtnEraseMask.Content = enabled && erase ? "Erasing Protect Mask" : "Erase Mask";
+        BtnPaintMask.Content = enabled && !erase && !retouch ? "Painting Protect Mask" : "Paint Protect Mask";
+        BtnEraseMask.Content = enabled && erase && !retouch ? "Erasing Protect Mask" : "Erase Protect Mask";
+        BtnPaintRetouch.Content = enabled && !erase && retouch ? "Painting Retouch Area" : "Paint Retouch Area";
+        BtnEraseRetouch.Content = enabled && erase && retouch ? "Erasing Retouch Area" : "Erase Retouch Area";
         MaskCanvas.Opacity = enabled ? 0.92 : 0.0;
         if (enabled)
         {
-            TxtPreviewMode.Text = erase ? "MASK ERASE • paint over the protected face" : "MASK PAINT • paint over the face to protect it";
+            TxtPreviewMode.Text = retouch
+                ? (erase ? "RETOUCH MASK ERASE • remove the orange area" : "RETOUCH MASK PAINT • select the face area")
+                : (erase ? "PROTECT MASK ERASE • remove the protected area" : "PROTECT MASK PAINT • protect identity-critical areas");
         }
     }
 
@@ -316,7 +348,8 @@ public partial class LabWindow : Window
             Y = ny,
             Radius = Math.Clamp(SldMaskBrush.Value, 0.01, 0.45),
             Opacity = 0.88,
-            Erase = _eraseMask
+            Erase = _eraseMask,
+            Retouch = _retouchMaskMode
         });
         _lastMaskPoint = point;
         UpdateMaskOverlay();
@@ -334,16 +367,17 @@ public partial class LabWindow : Window
         {
             double radiusX = Math.Max(2, stroke.Radius * width);
             double radiusY = Math.Max(2, stroke.Radius * height);
+            Color overlayColor = stroke.Erase
+                ? Color.FromRgb(248, 113, 113)
+                : stroke.Retouch
+                    ? Color.FromRgb(251, 146, 60)
+                    : Color.FromRgb(52, 211, 153);
             var ellipse = new System.Windows.Shapes.Ellipse
             {
                 Width = radiusX * 2,
                 Height = radiusY * 2,
-                Fill = new SolidColorBrush(stroke.Erase
-                    ? Color.FromArgb(42, 248, 113, 113)
-                    : Color.FromArgb(48, 52, 211, 153)),
-                Stroke = new SolidColorBrush(stroke.Erase
-                    ? Color.FromArgb(130, 248, 113, 113)
-                    : Color.FromArgb(130, 52, 211, 153)),
+                Fill = new SolidColorBrush(Color.FromArgb(48, overlayColor.R, overlayColor.G, overlayColor.B)),
+                Stroke = new SolidColorBrush(Color.FromArgb(130, overlayColor.R, overlayColor.G, overlayColor.B)),
                 StrokeThickness = 1,
                 IsHitTestVisible = false
             };
@@ -397,6 +431,7 @@ public partial class LabWindow : Window
             SldShadowSaturation.Value = _adjustments.ShadowSaturation;
             SldHighlightHue.Value = _adjustments.HighlightHue;
             SldHighlightSaturation.Value = _adjustments.HighlightSaturation;
+            SldManualRetouchStrength.Value = _adjustments.ManualRetouchStrength;
             ChkMonochrome.IsChecked = _adjustments.Monochrome;
             ChkFaceProtection.IsChecked = _adjustments.FaceProtection;
         }
@@ -439,6 +474,7 @@ public partial class LabWindow : Window
         ShadowSaturation = SldShadowSaturation.Value,
         HighlightHue = SldHighlightHue.Value,
         HighlightSaturation = SldHighlightSaturation.Value,
+        ManualRetouchStrength = SldManualRetouchStrength.Value,
         Monochrome = ChkMonochrome.IsChecked == true,
         FaceProtection = ChkFaceProtection.IsChecked != false,
         MaskStrokes = _adjustments.MaskStrokes?.Select(stroke => stroke.Clone()).ToList() ?? new()
@@ -475,6 +511,7 @@ public partial class LabWindow : Window
         TxtShadowSaturation.Text = Percent(SldShadowSaturation.Value);
         TxtHighlightHue.Text = Percent(SldHighlightHue.Value);
         TxtHighlightSaturation.Text = Percent(SldHighlightSaturation.Value);
+        TxtManualRetouchStrength.Text = Percent(SldManualRetouchStrength.Value);
     }
 
     private static string Signed(double value, string suffix = "") =>

@@ -35,8 +35,11 @@ offline and does not alter the source file until the user saves a result.
 - Clarity, sharpening, vignette, film grain, fade, monochrome
 - Conservative local portrait retouch: skin smoothing, face light, eye detail and teeth whitening
 - Five-point RGB tone curves plus shadow/highlight color-wheel hue and saturation controls
-- Painted, normalized face-protection masks: paint or erase directly over the preview; masks protect
-  identity-critical areas from local smoothing, whitening, face light and detail operations
+- Painted, normalized masks with two independent roles: a green protection mask for identity-critical
+  areas and an orange retouch-area mask that scopes a stronger manual retouch. Both can be painted or
+  erased directly over the preview.
+- Strong local manual retouch (skin smoothing, face light, eye detail, teeth whitening and sharpening)
+  stays a deterministic pixel operation; it is not the full AI face reconstruction path.
 - Modern built-in looks: Natural Portrait, Portrait Glow, Clean Studio, Golden Hour, Cinematic Teal &
   Orange, Matte Film, HDR Detail Pop, and Fine Art Black & White
 - Before/after toggle, fit/100%/200% preview, histogram summary, undo/redo and reset

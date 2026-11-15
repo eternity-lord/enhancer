@@ -68,14 +68,23 @@
                                 <CheckBox x:Name="ChkMonochrome" Content="Black &amp; White / سیاه‌وسفید" Checked="CheckChanged" Unchecked="CheckChanged" Margin="0,0,0,8" />
                                 <CheckBox x:Name="ChkFaceProtection" Content="Protect painted face mask" IsChecked="True" Checked="CheckChanged" Unchecked="CheckChanged" Margin="0,0,0,7" />
                                 <TextBlock Text="Paint over eyes, skin or other identity-critical areas to protect them from local retouch. The mask is saved with JSON/XMP presets." TextWrapping="Wrap" FontSize="10.5" Foreground="#94A3B8" Margin="0,0,0,8" />
+                                <TextBlock Text="LOCAL RETOUCH MASK / ماسک روتوش موضعی" FontSize="10.5" FontWeight="Bold" Foreground="#FDBA74" Margin="0,2,0,5" />
+                                <TextBlock Text="Retouch strength / شدت روتوش" FontSize="10" Foreground="#CBD5E1" />
+                                <Slider x:Name="SldManualRetouchStrength" Minimum="0" Maximum="1" Value="0.75" ValueChanged="SliderChanged" />
+                                <TextBlock x:Name="TxtManualRetouchStrength" Text="+75%" Style="{StaticResource LabValue}" Margin="0,0,0,5" />
+                                <Button Content="Strong Local Retouch" Style="{StaticResource SecondaryStudioButton}" Padding="8,5" Margin="0,0,0,7" Click="BtnStrongManualRetouch_Click" />
+                                <TextBlock Text="Mask brush size / اندازه قلم" FontSize="10" Foreground="#CBD5E1" Margin="0,2,0,0" />
                                 <Slider x:Name="SldMaskBrush" Minimum="0.01" Maximum="0.28" Value="0.08" ToolTip="Mask brush size" />
-                                <TextBlock Text="Mask brush size / اندازه قلم" FontSize="10" Foreground="#CBD5E1" Margin="0,2,0,6" />
-                                <StackPanel Orientation="Horizontal">
-                                    <Button x:Name="BtnPaintMask" Content="Paint Protect Mask" Style="{StaticResource SecondaryStudioButton}" Padding="8,5" Margin="0,0,5,0" Click="BtnPaintMask_Click" />
-                                    <Button x:Name="BtnEraseMask" Content="Erase Mask" Style="{StaticResource SecondaryStudioButton}" Padding="8,5" Margin="0,0,5,0" Click="BtnEraseMask_Click" />
-                                    <Button Content="Clear" Style="{StaticResource SecondaryStudioButton}" Padding="8,5" Click="BtnClearMask_Click" />
+                                <StackPanel Orientation="Horizontal" Margin="0,3,0,4">
+                                    <Button x:Name="BtnPaintRetouch" Content="Paint Retouch Area" Style="{StaticResource SecondaryStudioButton}" Padding="7,5" Margin="0,0,5,0" Click="BtnPaintRetouch_Click" />
+                                    <Button x:Name="BtnEraseRetouch" Content="Erase Retouch Area" Style="{StaticResource SecondaryStudioButton}" Padding="7,5" Click="BtnEraseRetouch_Click" />
                                 </StackPanel>
-                                <TextBlock Text="Click Paint, then paint directly over the preview. Green marks protect local face retouch; red marks erase protection." TextWrapping="Wrap" FontSize="10" Foreground="#64748B" Margin="0,8,0,0" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Button x:Name="BtnPaintMask" Content="Paint Protect Mask" Style="{StaticResource SecondaryStudioButton}" Padding="7,5" Margin="0,0,5,0" Click="BtnPaintMask_Click" />
+                                    <Button x:Name="BtnEraseMask" Content="Erase Protect Mask" Style="{StaticResource SecondaryStudioButton}" Padding="7,5" Margin="0,0,5,0" Click="BtnEraseMask_Click" />
+                                    <Button Content="Clear" Style="{StaticResource SecondaryStudioButton}" Padding="7,5" Click="BtnClearMask_Click" />
+                                </StackPanel>
+                                <TextBlock Text="Orange = selected area for stronger manual retouch. Green = protect identity-critical areas. Red = erase mask." TextWrapping="Wrap" FontSize="10" Foreground="#64748B" Margin="0,8,0,0" />
                             </StackPanel>
                         </Border>
 
@@ -89,7 +98,7 @@
                         <Border Background="#111827" BorderBrush="#263449" BorderThickness="1" CornerRadius="8" Padding="10">
                             <StackPanel>
                                 <TextBlock Text="PRO WORKFLOW" FontSize="11" FontWeight="Bold" Foreground="#34D399" Margin="0,0,0,7" />
-                                <TextBlock Text="• Non-destructive original + live preview&#x0a;• Undo / redo history&#x0a;• Painted masks and face protection&#x0a;• RGB curves and shadow/highlight wheels&#x0a;• Adobe Camera Raw XMP import&#x0a;• Batch apply beside originals&#x0a;• Portable .enhancerpreset JSON export&#x0a;• High-quality PNG / JPEG export" TextWrapping="Wrap" FontSize="10.5" Foreground="#CBD5E1" />
+                                <TextBlock Text="• Non-destructive original + live preview&#x0a;• Undo / redo history&#x0a;• Strong local retouch with painted area mask&#x0a;• Painted protection masks for identity safety&#x0a;• RGB curves and shadow/highlight wheels&#x0a;• Adobe Camera Raw XMP import&#x0a;• Batch apply beside originals&#x0a;• Portable .enhancerpreset JSON export&#x0a;• High-quality PNG / JPEG export" TextWrapping="Wrap" FontSize="10.5" Foreground="#CBD5E1" />
                             </StackPanel>
                         </Border>
                     </StackPanel>
