@@ -25,9 +25,10 @@ public sealed class Strings : INotifyPropertyChanged
 
     public string AppTitle => _isPersian ? "Enhancer v3.2 Studio — نسخه ویندوز" : "Enhancer v3.2 Studio";
     public string AppSubtitle => _isPersian
-        ? "افزایش کیفیت هوش مصنوعی، بازسازی چهره CodeFormer و نورپردازی هوشمند — کاملاً آفلاین"
-        : "Offline AI Super-Resolution, CodeFormer Face Restoration & Smart HDR — Windows x64";
+        ? "افزایش کیفیت، بازسازی چهره، نور و اتاق LAB برای رتوش و رنگ — کاملاً آفلاین"
+        : "Offline AI Super-Resolution, CodeFormer Face Restoration, Smart HDR & LAB — Windows x64";
     public string CreditBadge => _isPersian ? "ساخته شده توسط محمد ایرانی" : "Built by Mohammad Irani";
+    public string LabBtn => _isPersian ? "LAB — روتوش و رنگ" : "LAB — Retouch & Color";
     public string DiagnosticsBtn => _isPersian ? "عیب‌یابی و تست موتور" : "Diagnostics & Tests";
 
     // Left Queue Panel

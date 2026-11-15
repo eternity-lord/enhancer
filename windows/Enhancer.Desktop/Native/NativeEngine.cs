@@ -64,6 +64,20 @@ internal unsafe struct EnhancerCGpuInfo
     public fixed byte Name[256];
 }
 
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct EnhancerCDisplayAdapterInfo
+{
+    public int Index;
+    public uint VendorId;
+    public uint Type;
+    public ulong DedicatedVideoMemoryMb;
+    public ulong SharedSystemMemoryMb;
+    public int IsSoftware;
+    public int IsRemote;
+    public int IsVulkanVisible;
+    public fixed byte Name[256];
+}
+
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void EnhancerProgressDelegate(
     int progressPct,
@@ -96,6 +110,31 @@ public sealed record HardwareGpuDevice(
         2 => "Virtual GPU",
         _ => "Software / Other"
     };
+}
+
+public sealed record WindowsDisplayAdapter(
+    int Index,
+    string Name,
+    uint VendorId,
+    uint DeviceType,
+    ulong DedicatedVideoMemoryMb,
+    ulong SharedSystemMemoryMb,
+    bool IsSoftware,
+    bool IsRemote,
+    bool IsVulkanVisible
+)
+{
+    public string TypeLabel => DeviceType switch
+    {
+        0 => "Discrete",
+        1 => "Integrated / Shared",
+        2 => "Virtual",
+        _ => "Software / Other"
+    };
+
+    public string MemoryLabel => DedicatedVideoMemoryMb > 0
+        ? $"{DedicatedVideoMemoryMb:N0} MB VRAM"
+        : $"{SharedSystemMemoryMb:N0} MB shared";
 }
 
 public sealed record DimensionPlanInfo(
@@ -194,6 +233,12 @@ public static class NativeEngine
     private static extern void enhancer_get_diagnostics_summary(byte[] outUtf8, int outCap);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int enhancer_enumerate_display_adapters(
+        [Out] EnhancerCDisplayAdapterInfo[]? outAdapters,
+        int maxAdapters
+    );
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     private static extern int enhancer_calibrate_fp16_policy(
         IntPtr modelsDirUtf8,
         out int outVulkanAvailable,
@@ -284,11 +329,13 @@ public static class NativeEngine
 
         foreach (string candidate in candidates)
         {
-            if (File.Exists(Path.Combine(candidate, "models", "realesrgan-x4plus.param")))
+            if (File.Exists(Path.Combine(candidate, "models", "lsdir-photo-x4.param")) ||
+                File.Exists(Path.Combine(candidate, "models", "realesrgan-x4plus.param")))
             {
                 return candidate;
             }
-            if (File.Exists(Path.Combine(candidate, "realesrgan-x4plus.param")))
+            if (File.Exists(Path.Combine(candidate, "lsdir-photo-x4.param")) ||
+                File.Exists(Path.Combine(candidate, "realesrgan-x4plus.param")))
             {
                 return candidate;
             }
@@ -331,6 +378,38 @@ public static class NativeEngine
                     buf[i].Type,
                     buf[i].HeapBudgetMb,
                     buf[i].IsRecommended != 0
+                ));
+            }
+        }
+        return list;
+    }
+
+    public static unsafe IReadOnlyList<WindowsDisplayAdapter> EnumerateDisplayAdapters()
+    {
+        EnhancerCDisplayAdapterInfo[] buf = new EnhancerCDisplayAdapterInfo[16];
+        int count = enhancer_enumerate_display_adapters(buf, buf.Length);
+        if (count <= 0)
+        {
+            return Array.Empty<WindowsDisplayAdapter>();
+        }
+
+        int n = Math.Min(count, buf.Length);
+        var list = new List<WindowsDisplayAdapter>(n);
+        for (int i = 0; i < n; i++)
+        {
+            fixed (byte* pName = buf[i].Name)
+            {
+                string name = ReadNullTerminatedUtf8(pName, 256);
+                list.Add(new WindowsDisplayAdapter(
+                    buf[i].Index,
+                    string.IsNullOrWhiteSpace(name) ? $"Windows Adapter {buf[i].Index}" : name,
+                    buf[i].VendorId,
+                    buf[i].Type,
+                    buf[i].DedicatedVideoMemoryMb,
+                    buf[i].SharedSystemMemoryMb,
+                    buf[i].IsSoftware != 0,
+                    buf[i].IsRemote != 0,
+                    buf[i].IsVulkanVisible != 0
                 ));
             }
         }

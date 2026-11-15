@@ -20,7 +20,7 @@
                        FontSize="18"
                        FontWeight="Bold"
                        Foreground="#F8FAFC" />
-            <TextBlock Text="Inspect Vulkan GPUs, Multi-Core CPU fallback readiness, FP16 tile calibration, Native Self-Test, and 24-case Seam Verification."
+            <TextBlock Text="Inspect DXGI adapters (including legacy/integrated GPUs), Vulkan visibility, CPU fallback readiness, FP16 tile calibration, Native Self-Test, and 24-case Seam Verification."
                        FontSize="12.5"
                        Foreground="#94A3B8"
                        Margin="0,3,0,0" />

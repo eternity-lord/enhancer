@@ -25,7 +25,8 @@ struct ModelSpec {
 };
 
 constexpr ModelSpec kModels[] = {
-    {"photo-x4",       "models/realesrgan-x4plus.param",         "models/realesrgan-x4plus.bin",         4},
+    {"photo-x4",       "models/lsdir-photo-x4.param",            "models/lsdir-photo-x4.bin",            4},
+    {"real-esrgan-x4", "models/realesrgan-x4plus.param",         "models/realesrgan-x4plus.bin",         4},
     {"general-v3",     "models/realesr-general-x4v3.param",      "models/realesr-general-x4v3.bin",      4},
     {"general-wdn",    "models/realesr-general-wdn-x4v3.param",  "models/realesr-general-wdn-x4v3.bin",  4},
     {"lsdir-x4",       "models/lsdir-compact-x4.param",          "models/lsdir-compact-x4.bin",          4},
@@ -79,8 +80,9 @@ std::string detect_default_models_dir(const std::string& exe_path_utf8) {
 #else
         s = c.string();
 #endif
-        const std::string probe = enhancer::resolve_model_file_path(s, "models/realesrgan-x4plus.param");
-        if (enhancer::utf8_file_exists(probe)) {
+        const std::string quality_probe = enhancer::resolve_model_file_path(s, "models/lsdir-photo-x4.param");
+        const std::string fallback_probe = enhancer::resolve_model_file_path(s, "models/realesrgan-x4plus.param");
+        if (enhancer::utf8_file_exists(quality_probe) || enhancer::utf8_file_exists(fallback_probe)) {
             return s;
         }
     }
@@ -106,7 +108,7 @@ void print_usage() {
         "  enhancer-cli -i <input.jpg> -o <output.jpg> [options]\n\n"
         "Options:\n"
         "  --mode <prime|gentle|balanced|strong|ultra|digital-art|old-photo>  (default: ultra)\n"
-        "  --model <photo-x4|general-v3|general-wdn|lsdir-x4|anime-x4|compact-x2|compact-x3|compact-x4>\n"
+        "  --model <photo-x4|real-esrgan-x4|general-v3|general-wdn|lsdir-x4|anime-x4|compact-x2|compact-x3|compact-x4>\n"
         "  --target <native|2k|4k|8k|16k>                                     (default: native x4)\n"
         "  --faces <0|1>               Identity-safe SCRFD + CodeFormer detail (default: mode preset)\n"
         "  --face-strength <0..100>    Conservative face detail strength        (default: 30)\n"
@@ -122,6 +124,7 @@ void print_usage() {
         "  --no-tta                    Disable TTA x8 ensemble for a faster single pass\n"
         "  --cpu                       Force Multi-Core CPU Precision backend (no GPU required)\n"
         "  --gpu <auto|integrated|discrete|0|1|...>  Select Vulkan GPU; auto = discrete then onboard iGPU\n"
+        "                              DXGI also inventories GT 730 / Intel HD adapters; CPU fallback is automatic when Vulkan is unavailable\n"
         "  --threads <0..64>           CPU OpenMP thread count (0 = auto)\n"
         "  --tile <0|64|128|192|256|384|512>  Tile size in px (0 = auto)\n"
         "  --fp32                      Force 32-bit storage on Vulkan\n"
@@ -290,11 +293,32 @@ int run_cli_utf8(const std::vector<std::string>& args) {
 
         EnhancerCGpuInfo gpus[16]{};
         const int32_t gpu_count = enhancer_enumerate_gpus(gpus, 16);
+        EnhancerCDisplayAdapterInfo adapters[16]{};
+        const int32_t adapter_count = enhancer_enumerate_display_adapters(adapters, 16);
 
         std::printf("=== Enhancer v3.2.0 Hardware & Engine Diagnostics ===\n");
         std::printf("Models Directory : %s\n", models_dir.c_str());
         std::printf("System Memory    : %d MB available / %d MB total\n", avail_mb, total_mb);
         std::printf("CPU Logical Cores: %d total (%d performance)\n", total_cores, big_cores);
+        std::printf("DXGI Adapters    : %d (physical Windows adapters)\n", adapter_count);
+        for (int32_t i = 0; i < std::min<int32_t>(adapter_count, 16); ++i) {
+            const char* kind = (adapters[i].type == 0) ? "Discrete" :
+                               (adapters[i].type == 1) ? "Integrated/Shared" :
+                               (adapters[i].type == 2) ? "Virtual" : "Software/Other";
+            const char* acceleration = adapters[i].is_vulkan_visible
+                ? "Vulkan+ncnn"
+                : (adapters[i].is_software ? "software" : "Vulkan driver unavailable");
+            std::printf(
+                "  [DXGI %d] %s (%s, %llu MB dedicated, %llu MB shared, Vendor: 0x%04X) — %s\n",
+                adapters[i].index,
+                adapters[i].name,
+                kind,
+                static_cast<unsigned long long>(adapters[i].dedicated_video_memory_mb),
+                static_cast<unsigned long long>(adapters[i].shared_system_memory_mb),
+                adapters[i].vendor_id,
+                acceleration
+            );
+        }
         std::printf("Vulkan GPUs      : %d\n", gpu_count);
         for (int32_t i = 0; i < std::min<int32_t>(gpu_count, 16); ++i) {
             const char* kind = (gpus[i].type == 0) ? "Discrete" :

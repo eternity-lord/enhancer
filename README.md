@@ -12,24 +12,25 @@
 **Enhancer v3.2 Studio** is a **100% offline** AI image super-resolution, portrait face restoration, and Smart HDR enhancement suite for **Windows 10/11 (x64)** and **Android (8.0+)** — powered by a shared high-precision **C++17 + ncnn** native engine. Every neural weight is bundled offline; zero photos ever leave your device.
 
 ### Windows v3.2 Highlights (`Enhancer.exe` + `enhancer-cli.exe`)
-- **Reference-quality default profile**: Ultra + Photo x4 + native output + Max Quality + TTA x8, with conservative identity-safe face detail and no default denoise/HDR color rewrite.
+- **Reference-quality default profile**: Ultra + quality-first LSDIR Photo x4 + native output + Max Quality + TTA x8, with conservative identity-safe face detail and no default denoise/HDR color rewrite.
 - **Works on ALL Windows PCs — With OR Without a Graphics Card**:
-  - **Systems WITH a Graphics Card (NVIDIA, AMD, Intel)**: Hardware-accelerated **Vulkan GPU** compute (`SimpleVK` dynamic runtime loader), automatic **Discrete GPU → Integrated/onboard GPU** selection on hybrid laptops, shared-memory-safe auto-tiling for Intel UHD/Iris and AMD iGPUs, anti-gray output verification (`ERR_VULKAN_CORRUPTED`), and automatic `Vulkan FP16 ↔ Vulkan FP32 → CPU` fallback. The Inspector and CLI also expose explicit integrated-GPU selection.
+  - **Systems WITH a Graphics Card (NVIDIA, AMD, Intel)**: Hardware-accelerated **Vulkan GPU** compute (`SimpleVK` dynamic runtime loader), automatic **Discrete GPU → Integrated/onboard GPU** selection on hybrid laptops, shared-memory-safe auto-tiling for Intel UHD/Iris and AMD iGPUs, anti-gray output verification (`ERR_VULKAN_CORRUPTED`), and automatic `Vulkan FP16 ↔ Vulkan FP32 → CPU` fallback. The new DXGI inventory also lists legacy adapters such as **GT 730** and **Intel HD Graphics 4600** instead of silently showing “no GPU”; their neural acceleration is enabled when the installed vendor driver exposes Vulkan, otherwise the app keeps a verified multi-core CPU path.
   - **Systems WITHOUT a Graphics Card (CPU-Only PCs, Office Laptops, VMs)**: Zero dependency on `vulkan-1.dll` at load time — automatically runs optimized **Multi-Core x86-64 CPU inference** (`OpenMP` + runtime `AVX-512` / `AVX2` / `FMA` / `SSE` dispatch) with configurable thread count.
+- **LAB — professional offline retouch and color room**: Remini-style conservative portrait retouch (skin smoothing, face light, eye detail and teeth whitening), tone/color controls, clarity, sharpening, vignette, film grain, fade and black & white; built-in modern portrait/cinematic presets; undo/redo; non-destructive before/after preview; import Adobe Camera Raw/Photoshop-compatible `.xmp` settings and export portable `.enhancerpreset` / JSON presets; high-quality PNG/JPEG export without uploading photos.
 - **7 Studio Enhancement Modes (100% Unlocked Inspector)**:
   - `Prime`, `Gentle`, `Balanced`, `Strong`, `Ultra` (with **Ultra Detail Intensity** & **Size of Changes** multi-scale synthesis), `Digital Art`, and `Old Photo` — every slider and toggle stays unlocked so you can customize any preset freely.
 - **Portrait Face Restoration (`SCRFD-2.5G-KPS` + `CodeFormer 512×512`)**:
   - Automatic 5-point landmark detection, Umeyama similarity alignment, sequential memory-safe `CodeFormer` neural restoration, Oklab skin-tone preservation, and seamless elliptical cosine feathering.
 - **Light AI (Smart HDR) & Pre-SR Artifact Cleanup**:
   - Edge-preserving Guided Filter shadow/highlight recovery and adaptive chroma vibrance, plus pre-inference JPEG 8×8 deblocking & chroma denoise.
-- **8 Bundled Offline Neural SR Models & Up to 16K Output**:
-  - `General v3 x4`, `Real-ESRGAN Photo x4+`, `General WDN Heavy Denoise x4`, `LSDIR Compact Crisp x4`, `Digital Art / Anime x4+`, and `Fast Compact x2 / x3 / x4`.
+- **9 Bundled Offline Neural SR Models & Up to 16K Output**:
+  - Quality-first `LSDIR Photo x4` (natural photographic detail), `Real-ESRGAN Photo x4+` conservative fallback, `General v3 x4`, `General WDN Heavy Denoise x4`, `LSDIR Compact Crisp x4`, `Digital Art / Anime x4+`, and `Fast Compact x2 / x3 / x4`.
   - Output targets from `Native` (`2×`/`3×`/`4×`), `2K (2560 px)`, `4K UHD (3840 px)`, `8K UHD (7680 px)`, up to **`16K Print Master (15360 px)`** or any custom pixel size, with **300 DPI** (or 72/150/600 DPI) print metadata embedded in both **4:4:4 Full-Chroma JPEG** and **Lossless PNG**.
 - **Interactive Desktop Studio UI & Command-Line Tool**:
   - Dark Studio interface with **Drag & Drop** (files & folders), **Batch Queue**, **Pan/Zoom (`Fit`, `100%`, `200%`, `400%`) Interactive Split Before/After Comparison**, **English & فارسی (RTL)** live toggle, **Hardware Diagnostics / Native Self-Test / Seam-Test**, plus **`enhancer-cli.exe`** for scripting and batch pipelines.
 
 ### Installing on Windows (10 / 11 x64)
-1. Download **`Enhancer-v3.2-Windows-x64-Setup.exe`** (one-click installer, no admin rights or prerequisites required — `.NET 8`, `VC++/OpenMP`, and all 20 neural model files are bundled) or **`Enhancer-v3.2-Windows-x64-Portable.zip`** from **Releases** or **GitHub Actions → Windows CI Build & Installer → Artifacts**.
+1. Download **`Enhancer-v3.2-Windows-x64-Setup.exe`** (one-click installer, no admin rights or prerequisites required — `.NET 8`, `VC++/OpenMP`, and all 22 neural model files are bundled) or **`Enhancer-v3.2-Windows-x64-Portable.zip`** from **Releases** or **GitHub Actions → Windows CI Build & Installer → Artifacts**.
 2. Launch **Enhancer v3.2 Studio**, drop any image or folder onto the window, select a Studio mode, and click **Enhance Selected**.
 
 ### Command-Line Usage (`enhancer-cli.exe`)
@@ -54,11 +55,11 @@
 ```
 
 ### Android v3.2 Highlights (`Enhancer-v3.2-universal.apk`)
-- **Reference-quality defaults**: new installs start in Ultra with the Photo x4 model, native x4 output, Max Quality full-resolution inference, TTA x8 ensemble processing, micro-detail recovery, JPEG 100% 4:4:4 output, and lossless PNG when exact pixels are required. Existing explicit settings remain unchanged.
+- **Reference-quality defaults**: new installs start in Ultra with the quality-first LSDIR Photo x4 model, native x4 output, Max Quality full-resolution inference, TTA x8 ensemble processing, micro-detail recovery, JPEG 100% 4:4:4 output, and lossless PNG when exact pixels are required. Existing non-photo model choices remain unchanged; saved Photo x4 selections receive the quality-first LSDIR backbone.
 - **Faster without quality shortcuts**: tile/compositor scratch is reused, duplicate JNI progress callbacks are coalesced, CPU/OpenMP scheduling is bounded to the selected ncnn worker pool, the streaming resizer reuses its row-window pointers, and PNG uses a faster lossless encoder path.
 - **Maximum-detail targets**: Native x4 is the starting profile shown in the reference comparison; 2K, 4K, 8K, and 16K Print Master (15360 px) remain available. Output buffers are streamed/tiled to keep memory bounded up to the supported 2 GiB delivery limit.
 - **Identity-safe faces**: SCRFD + CodeFormer is still available, but the default face residual is conservative, color-matched, and channel-delta-limited so eyelashes and skin detail can improve without redrawing facial geometry.
-- Universal offline Android package (`arm64-v8a`, `armeabi-v7a`, `x86_64`, Android 8.0+) with zero internet permission, all 7 Studio modes, `SCRFD + CodeFormer` face restoration, `Light AI`, 8 SR models, full-resolution tiled deep-zoom comparison viewer, 300 DPI metadata, foreground batch queue with thermal protection, and bilingual `English` / `فارسی` UI.
+- Universal offline Android package (`arm64-v8a`, `armeabi-v7a`, `x86_64`, Android 8.0+) with zero internet permission, all 7 Studio modes, `SCRFD + CodeFormer` face restoration, `Light AI`, 9 SR models, full-resolution tiled deep-zoom comparison viewer, 300 DPI metadata, foreground batch queue with thermal protection, and bilingual `English` / `فارسی` UI.
 - Download the verified APK and SHA-256 file from the [Enhancer v3.2.0 Android release](https://github.com/eternity-lord/enhancer/releases/tag/v3.2.0).
 
 ---
@@ -69,10 +70,11 @@
 **Enhancer نسخه ۳.۲** (**ساخته شده توسط محمد ایرانی**) یک استودیوی کامل و **۱۰۰٪ آفلاین** برای افزایش کیفیت و رزولوشن تصاویر، بازسازی تخصصی چهره با هوش مصنوعی و اصلاح نور هوشمند برای **ویندوز ۱۰ و ۱۱ (۶۴ بیتی)** و **اندروید** است. تمام شبکه‌های عصبی داخل برنامه قرار دارند و هیچ تصویری به اینترنت ارسال نمی‌شود.
 
 ### ویژگی‌های کلیدی نسخه ویندوز (`Enhancer.exe` و `enhancer-cli.exe`)
-- **پروفایل پیش‌فرض با بالاترین جزئیات و حفظ هویت چهره**: حالت Ultra، مدل Photo x4، خروجی Native x4، Max Quality، TTA x8 و ترمیم محافظه‌کارانه چهره بدون بازطراحی هندسه صورت.
+- **پروفایل پیش‌فرض با بالاترین جزئیات و حفظ هویت چهره**: حالت Ultra، مدل LSDIR Photo x4، خروجی Native x4، Max Quality، TTA x8 و ترمیم محافظه‌کارانه چهره بدون بازطراحی هندسه صورت.
 - **اجرای کامل روی تمام رایانه‌ها — با کارت گرافیک و بدون کارت گرافیک**:
-  - **رایانه‌های دارای کارت گرافیک (NVIDIA، AMD، Intel)**: شتاب‌دهی سخت‌افزاری با **Vulkan GPU**، انتخاب خودکار کارت مجزا و در صورت نبودن/نامعتبر بودن آن استفاده از **گرافیک آنبورد (Integrated)**، تنظیم هوشمند کاشی بر اساس VRAM یا حافظه اشتراکی، و سیستم ضد تصویر خاکستری. از منوی Hardware و گزینه `--gpu integrated` هم می‌توان گرافیک آنبورد را مستقیم انتخاب کرد.
+  - **رایانه‌های دارای کارت گرافیک (NVIDIA، AMD، Intel)**: شتاب‌دهی سخت‌افزاری با **Vulkan GPU**، انتخاب خودکار کارت مجزا و در صورت نامعتبر بودن آن استفاده از گرافیک آنبورد، تنظیم هوشمند کاشی بر اساس VRAM یا حافظه اشتراکی، و سیستم ضد تصویر خاکستری. فهرست جدید DXGI کارت‌های قدیمی مانند **GT 730** و **Intel HD Graphics 4600** را هم شناسایی و در Diagnostics نمایش می‌دهد؛ شتاب‌دهی عصبی آن‌ها به پشتیبانی درایور Vulkan همان مدل وابسته است و در غیر این صورت مسیر CPU چند‌هسته‌ای به‌صورت مطمئن فعال می‌شود. از منوی Hardware و گزینه `--gpu integrated` هم می‌توان گرافیک آنبورد Vulkan را مستقیم انتخاب کرد.
   - **رایانه‌های بدون کارت گرافیک (فقط CPU)**: بدون هیچ وابستگی اجباری به درایور گرافیک یا `vulkan-1.dll`؛ اجرای خودکار و بهینه روی **پردازنده چند‌هسته‌ای (Multi-Core CPU)** با دستورات برداری `AVX2 / AVX-512 / OpenMP` و امکان تنظیم تعداد هسته‌ها.
+- **LAB — اتاق حرفه‌ای رتوش و رنگ کاملاً آفلاین**: رتوش محافظه‌کارانه شبیه Remini (صاف‌کردن پوست، نور چهره، جزئیات چشم و سفیدکردن دندان)، کنترل تون و رنگ، وضوح، شارپنس، وینیت، دانه فیلم، Fade و سیاه‌وسفید؛ پریست‌های مدرن پرتره/سینمایی؛ Undo/Redo؛ پیش‌نمایش غیرمخرب قبل/بعد؛ ورود تنظیمات `.xmp` سازگار با Photoshop/Adobe Camera Raw و خروجی پریست `.enhancerpreset` / JSON؛ ذخیره PNG/JPEG با کیفیت بالا.
 - **۷ حالت هوش مصنوعی استودیویی بدون هیچ محدودیت قفل‌شده**:
   - شامل حالت‌های `Prime`، `Gentle`، `Balanced`، `Strong`، `Ultra` (مجهز به اسلایدرهای **شدت جزئیات** و **اندازه تغییرات**)، `Digital Art` و `Old Photo`.
 - **بازسازی تخصصی چهره (`SCRFD + CodeFormer 512×512`) و نورپردازی هوشمند (`Light AI`)**:

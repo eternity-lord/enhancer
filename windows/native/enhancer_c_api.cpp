@@ -5,11 +5,13 @@
 #include "platform_io.h"
 #include "resizer.h"
 #include "upscaler.h"
+#include "windows_gpu_inventory.h"
 
 #include "cpu.h"
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <exception>
@@ -40,6 +42,19 @@ void copy_utf8_trunc(char* dst, size_t cap, const std::string& src) noexcept {
         std::memcpy(dst, src.data(), n);
     }
     dst[n] = '\0';
+}
+
+std::string lowercase_ascii(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+bool adapter_names_match(const std::string& a, const std::string& b) {
+    const std::string na = lowercase_ascii(a);
+    const std::string nb = lowercase_ascii(b);
+    return na == nb || (!na.empty() && !nb.empty() && (na.find(nb) != std::string::npos || nb.find(na) != std::string::npos));
 }
 
 enhancer::UpscaleConfig map_c_config(const EnhancerCJobConfig& j) {
@@ -174,6 +189,48 @@ ENHANCER_API int32_t ENHANCER_CALL enhancer_enumerate_gpus(
                     sizeof(out_gpus[i].name),
                     gpus[static_cast<size_t>(i)].name
                 );
+            }
+        }
+        return total;
+    } catch (...) {
+        return 0;
+    }
+}
+
+ENHANCER_API int32_t ENHANCER_CALL enhancer_enumerate_display_adapters(
+    EnhancerCDisplayAdapterInfo* out_adapters,
+    int32_t max_adapters
+) {
+    try {
+        const std::vector<enhancer::DisplayAdapterDesc> adapters =
+            enhancer::enumerate_windows_display_adapters();
+        const std::vector<enhancer::GpuDeviceDesc> vulkan_gpus =
+            enhancer::enumerate_vulkan_gpus();
+        const int32_t total = static_cast<int32_t>(adapters.size());
+        if (out_adapters != nullptr && max_adapters > 0) {
+            const int32_t count = std::min(total, max_adapters);
+            for (int32_t i = 0; i < count; ++i) {
+                const enhancer::DisplayAdapterDesc& src = adapters[static_cast<size_t>(i)];
+                std::memset(&out_adapters[i], 0, sizeof(EnhancerCDisplayAdapterInfo));
+                out_adapters[i].index = src.index;
+                out_adapters[i].vendor_id = src.vendor_id;
+                out_adapters[i].type = src.type;
+                out_adapters[i].dedicated_video_memory_mb = src.dedicated_video_memory_mb;
+                out_adapters[i].shared_system_memory_mb = src.shared_system_memory_mb;
+                out_adapters[i].is_software = src.is_software ? 1 : 0;
+                out_adapters[i].is_remote = src.is_remote ? 1 : 0;
+
+                // Keep the Vulkan list authoritative. Matching by vendor and adapter name
+                // avoids ever presenting a DXGI-only index as an ncnn GPU index.
+                bool vk_visible = false;
+                for (const enhancer::GpuDeviceDesc& vk : vulkan_gpus) {
+                    if (vk.vendor_id == src.vendor_id && adapter_names_match(vk.name, src.name)) {
+                        vk_visible = true;
+                        break;
+                    }
+                }
+                out_adapters[i].is_vulkan_visible = vk_visible ? 1 : 0;
+                copy_utf8_trunc(out_adapters[i].name, sizeof(out_adapters[i].name), src.name);
             }
         }
         return total;

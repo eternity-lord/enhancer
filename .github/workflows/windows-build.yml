@@ -22,7 +22,7 @@ jobs:
           path: ~/.cache/enhancer-windows-deps
           key: enhancer-win-deps-v3-ncnn20261020-cf-cfe0fe2d
 
-      - name: Prepare Windows ncnn VS2022 SDK & all 20 neural model files
+      - name: Prepare Windows ncnn VS2022 SDK & all 22 neural model files
         shell: pwsh
         run: ./scripts/prepare_windows_deps.ps1
 
@@ -104,9 +104,29 @@ jobs:
           $StageModels = Join-Path $StageDir "models"
           New-Item -ItemType Directory -Force -Path $StageModels | Out-Null
           Copy-Item -Force "windows\deps\models\*" $StageModels
+          foreach ($requiredModel in @("lsdir-photo-x4.param", "lsdir-photo-x4.bin")) {
+            if (-not (Test-Path (Join-Path $StageModels $requiredModel))) {
+              throw "Quality-first LSDIR model is missing from the Windows package: $requiredModel"
+            }
+          }
 
           Copy-Item -Force "README.md" (Join-Path $StageDir "README.md")
           Write-Host "Staged files count in models: $((Get-ChildItem $StageModels).Count)"
+
+      - name: Verify Lab UI & Windows adapter inventory sources are included
+        shell: pwsh
+        run: |
+          $RequiredLabSources = @(
+            "windows\Enhancer.Desktop\Lab\LabWindow.xaml",
+            "windows\Enhancer.Desktop\Lab\LabWindow.xaml.cs",
+            "windows\Enhancer.Desktop\Lab\LabModels.cs",
+            "windows\Enhancer.Desktop\Lab\LabImageProcessor.cs",
+            "windows\native\windows_gpu_inventory.cpp"
+          )
+          foreach ($source in $RequiredLabSources) {
+            if (-not (Test-Path $source)) { throw "Lab/GPU compatibility source is missing: $source" }
+          }
+          Write-Host "Verified Lab controls, preset interchange, local image processor, and DXGI inventory sources."
 
       - name: Verify No-GPU Windows Compatibility (CLI Diagnostics, Native Self-Test & WPF Smoke-Test)
         shell: pwsh
@@ -132,7 +152,7 @@ jobs:
             exit 1
           }
 
-          Write-Host "=== 3. Testing enhancer-cli.exe --self-test (256x256 -> 1024x1024 Real-ESRGAN) ==="
+          Write-Host "=== 3. Testing enhancer-cli.exe --self-test (256x256 -> 1024x1024 LSDIR Photo) ==="
           $SelfOut = & "$StageDir\enhancer-cli.exe" --self-test 2>&1
           $SelfRc = $LASTEXITCODE
           $SelfOut | ForEach-Object { Write-Host $_ }

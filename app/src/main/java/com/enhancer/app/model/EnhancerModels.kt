@@ -16,14 +16,25 @@ enum class UpscaleModel(
     @StringRes val labelRes: Int,
     @StringRes val descriptionRes: Int
 ) {
+    // Quality-first default: full RRDBNet trained on the LSDIR photographic dataset.
+    // The previous Real-ESRGAN asset remains available below as a conservative fallback choice.
     PHOTO_X4(
-        paramAssetPath = "models/realesrgan-x4plus.param",
-        binAssetPath = "models/realesrgan-x4plus.bin",
+        paramAssetPath = "models/lsdir-photo-x4.param",
+        binAssetPath = "models/lsdir-photo-x4.bin",
         scale = 4,
-        fileSlug = "x4plus",
+        fileSlug = "lsdir-photo-x4",
         approxWeightsMb = 34,
         labelRes = R.string.model_photo,
         descriptionRes = R.string.model_photo_desc
+    ),
+    REAL_ESRGAN_X4(
+        paramAssetPath = "models/realesrgan-x4plus.param",
+        binAssetPath = "models/realesrgan-x4plus.bin",
+        scale = 4,
+        fileSlug = "realesrgan-x4plus",
+        approxWeightsMb = 34,
+        labelRes = R.string.model_real_esrgan,
+        descriptionRes = R.string.model_real_esrgan_desc
     ),
     GENERAL_X4_V3(
         paramAssetPath = "models/realesr-general-x4v3.param",
@@ -247,8 +258,9 @@ enum class AppLanguageMode(val tag: String) {
 }
 
 data class EnhancerSettings(
-    // New installs start with the reference-quality profile: Photo x4, native output, TTA x8,
-    // and conservative face identity protection. Existing saved settings are loaded unchanged.
+    // New installs start with the reference-quality profile: quality-first LSDIR Photo x4,
+    // native output, TTA x8, and conservative face identity protection. Existing setting keys
+    // remain stable; the saved PHOTO_X4 choice intentionally upgrades to the new backbone.
     val enhanceMode: EnhanceModePreset = EnhanceModePreset.ULTRA,
     val model: UpscaleModel = EnhanceModePreset.ULTRA.defaultModel,
     val target: TargetPreset = TargetPreset.NATIVE,

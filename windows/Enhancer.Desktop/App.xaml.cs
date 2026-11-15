@@ -54,10 +54,11 @@ public partial class App : Application
             var (threads, bigCores) = NativeEngine.GetCpuThreads();
             var (availMb, totalMb) = NativeEngine.GetSystemMemoryMb();
             var gpus = NativeEngine.EnumerateGpus();
+            var adapters = NativeEngine.EnumerateDisplayAdapters();
             string diag = NativeEngine.GetDiagnosticsSummary();
 
             Console.WriteLine($"[SmokeTest] ModelsDir={modelsDir}");
-            Console.WriteLine($"[SmokeTest] CPU={threads} ({bigCores} big), RAM={availMb}/{totalMb} MB, GPUs={gpus.Count}");
+            Console.WriteLine($"[SmokeTest] CPU={threads} ({bigCores} big), RAM={availMb}/{totalMb} MB, DXGIAdapters={adapters.Count}, VulkanGPUs={gpus.Count}");
             Console.WriteLine($"[SmokeTest] Diag={diag}");
 
             // Synthesize a 64x48 test image in RGBA8888 and run the v3.2 Ultra identity-safe
@@ -80,8 +81,8 @@ public partial class App : Application
             string outFile = Path.Combine(Path.GetTempPath(), $"enhancer_wpf_smoke_{Guid.NewGuid():N}.jpg");
             var req = new UpscaleJobRequest(
                 ModelsDirectory: modelsDir,
-                ParamRelativePath: "models/realesrgan-x4plus.param",
-                BinRelativePath: "models/realesrgan-x4plus.bin",
+                ParamRelativePath: "models/lsdir-photo-x4.param",
+                BinRelativePath: "models/lsdir-photo-x4.bin",
                 OutputFilePath: outFile,
                 ModelScale: 4,
                 TargetLongSide: 0,

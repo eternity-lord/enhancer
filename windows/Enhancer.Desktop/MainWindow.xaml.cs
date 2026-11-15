@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Enhancer.Desktop.Localization;
+using Enhancer.Desktop.Lab;
 using Enhancer.Desktop.Models;
 using Enhancer.Desktop.Native;
 using Microsoft.Win32;
@@ -71,6 +72,8 @@ public partial class MainWindow : Window
     private void PopulateDropdownsAndHardware()
     {
         var gpus = NativeEngine.EnumerateGpus();
+        var adapters = NativeEngine.EnumerateDisplayAdapters();
+        var physicalAdapters = adapters.Where(a => !a.IsSoftware && !a.IsRemote).ToList();
         var (threads, _) = NativeEngine.GetCpuThreads();
         var (availMb, _) = NativeEngine.GetSystemMemoryMb();
 
@@ -85,13 +88,29 @@ public partial class MainWindow : Window
             HardwarePillBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(16, 185, 129));
             HardwareDot.Fill = new SolidColorBrush(Color.FromRgb(16, 185, 129));
 
-            _deviceOptions.Add(new ComputeDeviceOption(false, -1, $"Auto — Best GPU (Discrete → Integrated/onboard) with Smart CPU Fallback"));
+            _deviceOptions.Add(new ComputeDeviceOption(false, -1, $"Auto — Best Vulkan GPU (Discrete → Integrated) with CPU Fallback"));
             foreach (var g in gpus)
             {
                 string gMemoryKind = g.DeviceType == 1 ? "shared" : "VRAM";
-                _deviceOptions.Add(new ComputeDeviceOption(false, g.Index, $"[GPU {g.Index}] {g.Name} ({g.TypeLabel}, {g.HeapBudgetMb} MB {gMemoryKind})"));
+                _deviceOptions.Add(new ComputeDeviceOption(false, g.Index, $"[Vulkan GPU {g.Index}] {g.Name} ({g.TypeLabel}, {g.HeapBudgetMb} MB {gMemoryKind})"));
             }
             _deviceOptions.Add(new ComputeDeviceOption(true, -1, $"Multi-Core CPU Only ({threads} Threads — FP32 High Precision)"));
+        }
+        else if (physicalAdapters.Count > 0)
+        {
+            // DXGI sees the physical adapter even when the installed Vulkan driver is absent,
+            // too old, or disabled. Do not pass its DXGI index to ncnn; keep Auto available so a
+            // newly installed Vulkan driver is picked up, and make the reason visible to the user.
+            string adapterNames = string.Join(", ", physicalAdapters.Take(2).Select(a => a.Name));
+            TxtHardwareBadge.Text = $"{physicalAdapters.Count} Windows GPU(s) detected • Vulkan driver unavailable • CPU fallback ready";
+            HardwarePillBorder.Background = new SolidColorBrush(Color.FromRgb(66, 42, 18));
+            HardwarePillBorder.BorderBrush = new SolidColorBrush(Color.FromRgb(245, 158, 11));
+            HardwareDot.Fill = new SolidColorBrush(Color.FromRgb(245, 158, 11));
+
+            _deviceOptions.Add(new ComputeDeviceOption(false, -1,
+                $"Auto — Retry Vulkan when available → CPU ({adapterNames})"));
+            _deviceOptions.Add(new ComputeDeviceOption(true, -1,
+                $"Multi-Core CPU Precision Engine ({threads} Threads — Vulkan driver not available)"));
         }
         else
         {
@@ -265,6 +284,14 @@ public partial class MainWindow : Window
     private void BtnDiagnostics_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new DiagnosticsWindow(_modelsDir) { Owner = this };
+        dlg.ShowDialog();
+    }
+
+    private void BtnLab_Click(object sender, RoutedEventArgs e)
+    {
+        var item = LstQueue.SelectedItem as QueueImageItem ?? _queue.FirstOrDefault();
+        string? path = item?.FilePath;
+        var dlg = new LabWindow(path) { Owner = this };
         dlg.ShowDialog();
     }
 

@@ -84,6 +84,20 @@ typedef struct EnhancerCGpuInfo {
     char name[256];
 } EnhancerCGpuInfo;
 
+// Full Windows adapter inventory. This is deliberately separate from EnhancerCGpuInfo:
+// DXGI can see a GT 730 or Intel HD adapter even when its Vulkan driver is unavailable.
+typedef struct EnhancerCDisplayAdapterInfo {
+    int32_t index;
+    uint32_t vendor_id;
+    uint32_t type;           // 0 = Discrete, 1 = Integrated, 2 = Virtual, 3 = Software/Other
+    uint64_t dedicated_video_memory_mb;
+    uint64_t shared_system_memory_mb;
+    int32_t is_software;
+    int32_t is_remote;
+    int32_t is_vulkan_visible;
+    char name[256];
+} EnhancerCDisplayAdapterInfo;
+
 ENHANCER_API int32_t ENHANCER_CALL enhancer_get_cpu_thread_count(int32_t* out_big_cores);
 
 ENHANCER_API void ENHANCER_CALL enhancer_get_system_memory_mb(
@@ -94,6 +108,11 @@ ENHANCER_API void ENHANCER_CALL enhancer_get_system_memory_mb(
 ENHANCER_API int32_t ENHANCER_CALL enhancer_enumerate_gpus(
     EnhancerCGpuInfo* out_gpus,
     int32_t max_gpus
+);
+
+ENHANCER_API int32_t ENHANCER_CALL enhancer_enumerate_display_adapters(
+    EnhancerCDisplayAdapterInfo* out_adapters,
+    int32_t max_adapters
 );
 
 ENHANCER_API void ENHANCER_CALL enhancer_get_diagnostics_summary(

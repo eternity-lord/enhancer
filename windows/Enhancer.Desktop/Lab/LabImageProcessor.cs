@@ -1,0 +1,315 @@
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+
+namespace Enhancer.Desktop.Lab;
+
+public static class LabImageProcessor
+{
+    public static BitmapSource Apply(BitmapSource source, LabAdjustments adjustments, CancellationToken cancellationToken = default)
+    {
+        var converted = new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
+        int width = converted.PixelWidth;
+        int height = converted.PixelHeight;
+        int stride = checked(width * 4);
+        byte[] input = new byte[checked(stride * height)];
+        converted.CopyPixels(input, stride, 0);
+        byte[] output = new byte[input.Length];
+
+        double exposureMul = Math.Pow(2.0, Math.Clamp(adjustments.Exposure, -3.0, 3.0));
+        double contrast = Math.Clamp(adjustments.Contrast, -1.0, 1.0);
+        double contrastFactor = (259.0 * (contrast * 255.0 + 255.0)) /
+                                (255.0 * (259.0 - contrast * 255.0));
+        double black = Math.Clamp(adjustments.BlackPoint, -1.0, 1.0) * 0.20;
+        double white = 1.0 - Math.Clamp(adjustments.WhitePoint, -1.0, 1.0) * 0.20;
+        double temperature = Math.Clamp(adjustments.Temperature, -1.0, 1.0);
+        double tint = Math.Clamp(adjustments.Tint, -1.0, 1.0);
+        double saturation = Math.Clamp(adjustments.Saturation, -1.0, 1.0);
+        double vibrance = Math.Clamp(adjustments.Vibrance, -1.0, 1.0);
+        double highlights = Math.Clamp(adjustments.Highlights, -1.0, 1.0);
+        double shadows = Math.Clamp(adjustments.Shadows, -1.0, 1.0);
+        double clarity = Math.Clamp(adjustments.Clarity, -1.0, 1.0);
+        double skinSmooth = Math.Clamp(adjustments.SkinSmoothing, 0.0, 1.0);
+        double faceLight = Math.Clamp(adjustments.FaceLight, 0.0, 1.0);
+        double eyeDetail = Math.Clamp(adjustments.EyeDetail, 0.0, 1.0);
+        double teeth = Math.Clamp(adjustments.TeethWhiten, 0.0, 1.0);
+        double sharpening = Math.Clamp(adjustments.Sharpening, 0.0, 1.0);
+        double vignette = Math.Clamp(adjustments.Vignette, 0.0, 1.0);
+        double grain = Math.Clamp(adjustments.Grain, 0.0, 1.0);
+        double fade = Math.Clamp(adjustments.Fade, 0.0, 1.0);
+
+        // The Lab retouch is intentionally conservative and local: it identifies likely skin
+        // and tooth tones instead of applying a plastic blur to the entire image. A 3x3 source
+        // neighborhood gives a fast, deterministic offline approximation suitable for portraits.
+        bool needsNeighborhood = skinSmooth > 0.001 || clarity > 0.001 || sharpening > 0.001 || eyeDetail > 0.001;
+
+        Parallel.For(0, height, new ParallelOptions
+        {
+            CancellationToken = cancellationToken,
+            MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1)
+        }, y =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            for (int x = 0; x < width; x++)
+            {
+                int index = (y * stride) + (x * 4);
+                double b = input[index] / 255.0;
+                double g = input[index + 1] / 255.0;
+                double r = input[index + 2] / 255.0;
+                double originalR = r;
+                double originalG = g;
+                double originalB = b;
+
+                double avgR = r;
+                double avgG = g;
+                double avgB = b;
+                if (needsNeighborhood)
+                {
+                    int samples = 0;
+                    double sumR = 0, sumG = 0, sumB = 0;
+                    for (int oy = -1; oy <= 1; oy++)
+                    {
+                        int sy = Math.Clamp(y + oy, 0, height - 1);
+                        for (int ox = -1; ox <= 1; ox++)
+                        {
+                            int sx = Math.Clamp(x + ox, 0, width - 1);
+                            int si = (sy * stride) + (sx * 4);
+                            sumB += input[si] / 255.0;
+                            sumG += input[si + 1] / 255.0;
+                            sumR += input[si + 2] / 255.0;
+                            samples++;
+                        }
+                    }
+                    avgR = sumR / samples;
+                    avgG = sumG / samples;
+                    avgB = sumB / samples;
+                }
+
+                double luminance = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+                double shadowMask = SmoothStep(0.85, 0.05, luminance);
+                double highlightMask = SmoothStep(0.35, 0.95, luminance);
+
+                r *= exposureMul;
+                g *= exposureMul;
+                b *= exposureMul;
+
+                r += shadows * shadowMask * 0.20;
+                g += shadows * shadowMask * 0.20;
+                b += shadows * shadowMask * 0.20;
+                r -= highlights * highlightMask * 0.18;
+                g -= highlights * highlightMask * 0.18;
+                b -= highlights * highlightMask * 0.18;
+
+                r = ((r * 255.0 - 128.0) * contrastFactor + 128.0) / 255.0;
+                g = ((g * 255.0 - 128.0) * contrastFactor + 128.0) / 255.0;
+                b = ((b * 255.0 - 128.0) * contrastFactor + 128.0) / 255.0;
+
+                r = (r - black) / Math.Max(0.20, white - black);
+                g = (g - black) / Math.Max(0.20, white - black);
+                b = (b - black) / Math.Max(0.20, white - black);
+
+                // Temperature and tint are small channel-biased shifts, like a photo editor,
+                // rather than a destructive hue rotation.
+                r += temperature * 0.075;
+                g += tint * 0.035 - temperature * 0.012;
+                b -= temperature * 0.075;
+
+                RgbToHsv(r, g, b, out double hue, out double hsvSaturation, out double hsvValue);
+                hsvSaturation = Math.Clamp(
+                    hsvSaturation * (1.0 + saturation) + vibrance * (1.0 - hsvSaturation) * 0.65,
+                    0.0,
+                    1.0
+                );
+                HsvToRgb(hue, hsvSaturation, hsvValue, out r, out g, out b);
+
+                double skin = SkinMask(originalR, originalG, originalB);
+                if (skin > 0.01 && skinSmooth > 0.001)
+                {
+                    double blend = skin * skinSmooth * 0.72;
+                    r = Lerp(r, avgR, blend);
+                    g = Lerp(g, avgG, blend);
+                    b = Lerp(b, avgB, blend);
+                }
+                if (skin > 0.01 && faceLight > 0.001)
+                {
+                    double lift = skin * faceLight * 0.10;
+                    r += lift;
+                    g += lift;
+                    b += lift;
+                }
+
+                // Low-saturation, bright warm pixels are a conservative teeth/highlight mask.
+                // It avoids whitening the whole image while remaining useful on a close portrait.
+                double localSat = ColorSaturation(r, g, b);
+                double toothMask = Math.Clamp((luminance - 0.52) / 0.42, 0, 1) *
+                                   Math.Clamp((0.34 - localSat) / 0.34, 0, 1) *
+                                   Math.Clamp((r - b + 0.15) / 0.55, 0, 1);
+                if (teeth > 0.001 && toothMask > 0.01)
+                {
+                    double whiten = toothMask * teeth * 0.13;
+                    r += whiten;
+                    g += whiten;
+                    b += whiten * 1.08;
+                    hsvValue = Math.Clamp(hsvValue + whiten * 0.35, 0, 1);
+                }
+
+                if (needsNeighborhood)
+                {
+                    double highPassR = r - avgR;
+                    double highPassG = g - avgG;
+                    double highPassB = b - avgB;
+                    double detail = (clarity * 0.32) + (sharpening * 0.22) + (eyeDetail * 0.16);
+                    r += highPassR * detail;
+                    g += highPassG * detail;
+                    b += highPassB * detail;
+                }
+
+                if (adjustments.Monochrome)
+                {
+                    double gray = (0.2126 * r) + (0.7152 * g) + (0.0722 * b);
+                    r = g = b = gray;
+                }
+
+                if (fade > 0.001)
+                {
+                    double lifted = fade * 0.12;
+                    r = r * (1.0 - fade * 0.08) + lifted;
+                    g = g * (1.0 - fade * 0.08) + lifted;
+                    b = b * (1.0 - fade * 0.08) + lifted;
+                }
+
+                if (vignette > 0.001)
+                {
+                    double nx = (x / Math.Max(1.0, width - 1.0) * 2.0) - 1.0;
+                    double ny = (y / Math.Max(1.0, height - 1.0) * 2.0) - 1.0;
+                    double edge = Math.Clamp((nx * nx + ny * ny) * 0.5, 0, 1);
+                    double factor = 1.0 - edge * vignette * 0.48;
+                    r *= factor;
+                    g *= factor;
+                    b *= factor;
+                }
+
+                if (grain > 0.001)
+                {
+                    // Stable hash grain means re-rendering a slider does not make the preview flicker.
+                    uint hash = unchecked((uint)(x * 374761393 + y * 668265263));
+                    hash = (hash ^ (hash >> 13)) * 1274126177u;
+                    double noise = ((hash & 0xFFFF) / 65535.0 - 0.5) * grain * 0.08;
+                    r += noise;
+                    g += noise;
+                    b += noise;
+                }
+
+                output[index] = ToByte(b);
+                output[index + 1] = ToByte(g);
+                output[index + 2] = ToByte(r);
+                output[index + 3] = 255;
+            }
+        });
+
+        var bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
+        bitmap.WritePixels(new Int32Rect(0, 0, width, height), output, stride, 0);
+        bitmap.Freeze();
+        return bitmap;
+    }
+
+    public static string Describe(BitmapSource source)
+    {
+        var converted = new FormatConvertedBitmap(source, PixelFormats.Bgra32, null, 0);
+        int stride = converted.PixelWidth * 4;
+        byte[] pixels = new byte[stride * converted.PixelHeight];
+        converted.CopyPixels(pixels, stride, 0);
+        long[] bins = new long[8];
+        double sum = 0;
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            double luma = (0.2126 * pixels[i + 2]) + (0.7152 * pixels[i + 1]) + (0.0722 * pixels[i]);
+            sum += luma;
+            bins[Math.Clamp((int)(luma / 256.0 * bins.Length), 0, bins.Length - 1)]++;
+        }
+        double mean = sum / Math.Max(1, converted.PixelWidth * converted.PixelHeight);
+        string bars = string.Join(" ", bins.Select(v => new string('▮', (int)Math.Clamp(v * 16 / Math.Max(1, bins.Max()), 1, 8))));
+        return $"Histogram  {bars}   Mean Luma: {mean:0.0}   {converted.PixelWidth}×{converted.PixelHeight}px";
+    }
+
+    private static double SmoothStep(double edge0, double edge1, double value)
+    {
+        double t = Math.Clamp((value - edge0) / (edge1 - edge0), 0, 1);
+        return t * t * (3 - 2 * t);
+    }
+
+    private static double SkinMask(double r, double g, double b)
+    {
+        double max = Math.Max(r, Math.Max(g, b));
+        double min = Math.Min(r, Math.Min(g, b));
+        double saturation = max <= 0.0001 ? 0 : (max - min) / max;
+        bool warm = r > g * 0.82 && g > b * 0.78 && r > b * 1.12;
+        bool plausible = r > 0.16 && g > 0.09 && b > 0.05 && saturation > 0.08 && saturation < 0.82;
+        if (!warm || !plausible) return 0;
+        double hueBias = Math.Clamp((r - b) / 0.55, 0, 1);
+        return Math.Clamp(hueBias * (1.0 - Math.Abs(saturation - 0.38) / 0.55), 0, 1);
+    }
+
+    private static double ColorSaturation(double r, double g, double b)
+    {
+        double max = Math.Max(r, Math.Max(g, b));
+        double min = Math.Min(r, Math.Min(g, b));
+        return max <= 0.0001 ? 0 : (max - min) / max;
+    }
+
+    private static double Lerp(double a, double b, double t) => a + (b - a) * Math.Clamp(t, 0, 1);
+
+    private static byte ToByte(double value) => (byte)Math.Round(Math.Clamp(value, 0, 1) * 255.0);
+
+    private static void RgbToHsv(double r, double g, double b, out double h, out double s, out double v)
+    {
+        r = Math.Clamp(r, 0, 1);
+        g = Math.Clamp(g, 0, 1);
+        b = Math.Clamp(b, 0, 1);
+        double max = Math.Max(r, Math.Max(g, b));
+        double min = Math.Min(r, Math.Min(g, b));
+        double delta = max - min;
+        v = max;
+        s = max <= 0.00001 ? 0 : delta / max;
+        if (delta <= 0.00001)
+        {
+            h = 0;
+        }
+        else if (max == r)
+        {
+            h = ((g - b) / delta) % 6.0;
+        }
+        else if (max == g)
+        {
+            h = ((b - r) / delta) + 2.0;
+        }
+        else
+        {
+            h = ((r - g) / delta) + 4.0;
+        }
+        h = (h / 6.0) % 1.0;
+        if (h < 0) h += 1.0;
+    }
+
+    private static void HsvToRgb(double h, double s, double v, out double r, out double g, out double b)
+    {
+        h = ((h % 1.0) + 1.0) % 1.0;
+        s = Math.Clamp(s, 0, 1);
+        v = Math.Clamp(v, 0, 1);
+        double c = v * s;
+        double x = c * (1.0 - Math.Abs((h * 6.0) % 2.0 - 1.0));
+        double m = v - c;
+        (r, g, b) = h switch
+        {
+            < 1.0 / 6.0 => (c, x, 0),
+            < 2.0 / 6.0 => (x, c, 0),
+            < 3.0 / 6.0 => (0, c, x),
+            < 4.0 / 6.0 => (0, x, c),
+            < 5.0 / 6.0 => (x, 0, c),
+            _ => (c, 0, x)
+        };
+        r += m;
+        g += m;
+        b += m;
+    }
+}

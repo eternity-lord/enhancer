@@ -51,6 +51,8 @@ find_package(OpenMP)
 
 set(ENHANCER_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/native/enhancer_c_api.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/native/windows_gpu_inventory.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/native/gpu_preferences.cpp"
     "${ENHANCER_SHARED_CPP_DIR}/upscaler.cpp"
     "${ENHANCER_SHARED_CPP_DIR}/face_restorer.cpp"
     "${ENHANCER_SHARED_CPP_DIR}/photo_enhance_ops.cpp"
@@ -97,6 +99,12 @@ target_link_libraries(enhancer_engine PRIVATE
     ${ENHANCER_ZLIB_TARGET}
 )
 
+if(WIN32)
+    # DXGI inventory makes every Windows adapter visible, including old NVIDIA/Intel
+    # adapters whose Vulkan driver is absent. It never becomes an ncnn device index.
+    target_link_libraries(enhancer_engine PRIVATE dxgi)
+endif()
+
 if(OpenMP_CXX_FOUND)
     target_link_libraries(enhancer_engine PRIVATE OpenMP::OpenMP_CXX)
 endif()
@@ -104,6 +112,7 @@ endif()
 # Command-line executable (`enhancer-cli.exe` on Windows)
 add_executable(enhancer-cli
     "${CMAKE_CURRENT_SOURCE_DIR}/native/enhancer_cli.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/native/gpu_preferences.cpp"
 )
 
 target_include_directories(enhancer-cli PRIVATE

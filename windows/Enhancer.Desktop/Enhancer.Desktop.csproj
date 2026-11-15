@@ -19,7 +19,7 @@
     <Company>Mohammad Irani</Company>
     <Authors>Mohammad Irani</Authors>
     <Copyright>Built by Mohammad Irani</Copyright>
-    <Description>Enhancer v3.2 Studio for Windows — Offline AI Super-Resolution, Face Restoration &amp; Smart HDR (Discrete + Integrated Vulkan GPU + Multi-Core CPU)</Description>
+    <Description>Enhancer v3.2 Studio for Windows — Offline AI Super-Resolution, Face Restoration, Smart HDR and Lab retouch/color room (Vulkan GPU inventory + Multi-Core CPU)</Description>
   </PropertyGroup>
 
   <ItemGroup>

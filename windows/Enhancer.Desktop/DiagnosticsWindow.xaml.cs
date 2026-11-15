@@ -22,16 +22,33 @@ public partial class DiagnosticsWindow : Window
         var (threads, big) = NativeEngine.GetCpuThreads();
         var (availMb, totalMb) = NativeEngine.GetSystemMemoryMb();
         var gpus = NativeEngine.EnumerateGpus();
+        var adapters = NativeEngine.EnumerateDisplayAdapters();
 
         sb.AppendLine("=== Enhancer v3.2 Studio for Windows (x64) — Hardware Report ===");
         sb.AppendLine($"Models Directory     : {_modelsDir}");
         sb.AppendLine($"System Physical RAM  : {availMb:N0} MB free / {totalMb:N0} MB total");
         sb.AppendLine($"CPU Logical Threads  : {threads} total ({big} performance cores)");
+        sb.AppendLine($"DXGI Display Adapters: {adapters.Count}");
+        foreach (var adapter in adapters)
+        {
+            string driverState = adapter.IsVulkanVisible
+                ? "Vulkan + ncnn"
+                : (adapter.IsSoftware ? "Software adapter" : "Vulkan driver not visible");
+            sb.AppendLine($"  [DXGI {adapter.Index}] {adapter.Name} ({adapter.TypeLabel}, {adapter.MemoryLabel}, Vendor: 0x{adapter.VendorId:X4}) — {driverState}");
+        }
         sb.AppendLine($"Vulkan GPUs Detected : {gpus.Count}");
 
         if (gpus.Count == 0)
         {
-            sb.AppendLine("  -> No Vulkan GPU detected on this PC. Multi-Core CPU Precision Engine (OpenMP + AVX2/SSE) is ACTIVE and ready.");
+            if (adapters.Any(a => !a.IsSoftware))
+            {
+                sb.AppendLine("  -> Windows sees a physical GPU, but ncnn cannot use it until a compatible Vulkan driver is installed/enabled. CPU Precision Engine (OpenMP + AVX2/SSE) is ACTIVE and ready.");
+                sb.AppendLine("  -> GT 730 / Intel HD Graphics 4600 variants depend on the exact driver and hardware revision; the adapter remains listed instead of being silently reported as missing.");
+            }
+            else
+            {
+                sb.AppendLine("  -> No Vulkan GPU detected on this PC. Multi-Core CPU Precision Engine (OpenMP + AVX2/SSE) is ACTIVE and ready.");
+            }
         }
         else
         {
