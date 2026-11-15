@@ -28,6 +28,7 @@ public static class LabImageProcessor
         double vibrance = Math.Clamp(adjustments.Vibrance, -1.0, 1.0);
         double highlights = Math.Clamp(adjustments.Highlights, -1.0, 1.0);
         double shadows = Math.Clamp(adjustments.Shadows, -1.0, 1.0);
+        double clarity = Math.Clamp(adjustments.Clarity, -1.0, 1.0);
         double sharpening = Math.Clamp(adjustments.Sharpening, 0.0, 1.0);
         double vignette = Math.Clamp(adjustments.Vignette, 0.0, 1.0);
         double grain = Math.Clamp(adjustments.Grain, 0.0, 1.0);
