@@ -43,7 +43,7 @@ public static class SkinRetouchProcessor
         // smoke fixture but is effectively invisible on a 2K/4K portrait: three pixels are only
         // a fraction of a pore. Scale the sampling radius with the actual source resolution and
         // keep it capped so CPU fallback stays predictable.
-        int radius = ComputeNeighborhoodRadius(width, height, strength);
+        int radius = ComputeNeighborhoodRadius(width, height, strength, strokes);
         int[] sampleOffsets = BuildSampleOffsets(radius);
         int changedPixels = 0;
         int maxChannelDelta = 0;
@@ -257,12 +257,26 @@ public static class SkinRetouchProcessor
         return mask;
     }
 
-    private static int ComputeNeighborhoodRadius(int width, int height, double strength)
+    private static int ComputeNeighborhoodRadius(
+        int width,
+        int height,
+        double strength,
+        IReadOnlyList<SkinRetouchStroke> strokes)
     {
         int shortestSide = Math.Min(width, height);
-        int resolutionRadius = (int)Math.Round(shortestSide * 0.006, MidpointRounding.AwayFromZero);
+        double largestPaintRadius = strokes
+            .Where(stroke => !stroke.Erase)
+            .Select(stroke => Math.Clamp(stroke.Radius, 0.002, 1.0))
+            .DefaultIfEmpty(0.075)
+            .Max();
+
+        // Tie the local correction to the selected brush scale, not to a fixed number of source
+        // pixels. A 15–30 px neighborhood is enough to reduce a blemish-sized variation while the
+        // mask still limits the operation to the user's selected skin area.
+        double normalizedWindow = Math.Clamp(largestPaintRadius * 0.25, 0.008, 0.025);
+        int resolutionRadius = (int)Math.Round(shortestSide * normalizedWindow, MidpointRounding.AwayFromZero);
         int strengthRadius = strength >= 0.72 ? 1 : 0;
-        return Math.Clamp(Math.Max(3, resolutionRadius) + strengthRadius, 3, 16);
+        return Math.Clamp(Math.Max(4, resolutionRadius) + strengthRadius, 4, 32);
     }
 
     private static int[] BuildSampleOffsets(int radius)
