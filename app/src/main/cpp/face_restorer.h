@@ -22,6 +22,11 @@ struct NormalizedFace {
     float x1 = 0.0f;
     float y1 = 0.0f;
     float prob = 0.0f;
+    // Measured on the pre-SR source frame. These values let CodeFormer become strong on
+    // genuinely tiny/soft faces while keeping ordinary high-detail skin out of a broad
+    // generative blend.
+    float source_face_width_px = 0.0f;
+    float source_detail_score = 0.0f;
     // 5-point canonical facial landmarks normalized to [0..1] in source/output aspect space:
     // 0: left eye, 1: right eye, 2: nose tip, 3: left mouth corner, 4: right mouth corner
     float lm_x[5] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
@@ -43,6 +48,7 @@ std::vector<NormalizedFace> detect_faces_scrfd(
 
 // Restores detected faces in-place on upscaled `final_rgb` using sequential CodeFormer 512x512
 // encoder -> codebook argmax -> controllable SFT generator, Oklab skin/monochrome color matching,
+// adaptive feature-focused blending (strong broad recovery only for tiny/soft source faces),
 // identity-safe residual limiting, runtime anti-gray/NaN verification (with automatic Vulkan -> CPU retry),
 // and cosine-feathered inverse-similarity paste-back. Returns number of successfully restored faces.
 int restore_faces_codeformer(

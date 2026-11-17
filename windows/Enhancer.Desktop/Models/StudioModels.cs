@@ -31,14 +31,16 @@ public sealed record ModePresetSpec(
 {
     public static readonly IReadOnlyList<ModePresetSpec> All =
     [
-        new(EnhanceModeKind.Prime,      "photo-x4",    true,  68, false, 35, 10, 50, 40, 8),
+        // Face strength is intentionally maxed here; the native face path is adaptive and keeps
+        // broad CodeFormer blending for genuinely tiny/soft faces only.
+        new(EnhanceModeKind.Prime,      "photo-x4",    true, 100, false, 35, 10, 50, 40, 8),
         new(EnhanceModeKind.Gentle,     "lsdir-x4",    false, 60, false, 30, 0,  40, 35, 5),
-        new(EnhanceModeKind.Balanced,   "general-v3",  true,  70, true,  45, 18, 55, 45, 12),
-        new(EnhanceModeKind.Strong,     "general-wdn", true,  80, true,  60, 60, 60, 50, 18),
-        // Detail-first Ultra profile: Photo x4 + micro-detail, with conservative identity-safe faces.
-        new(EnhanceModeKind.Ultra,      "photo-x4",    true,  30, false, 30, 0, 78, 18, 14),
+        new(EnhanceModeKind.Balanced,   "general-v3",  true, 100, true,  45, 18, 55, 45, 12),
+        new(EnhanceModeKind.Strong,     "general-wdn", true, 100, true,  60, 60, 60, 50, 18),
+        // Detail-first Ultra profile: Photo x4 + adaptive maximum face reconstruction.
+        new(EnhanceModeKind.Ultra,      "photo-x4",    true, 100, false, 30, 0, 78, 18, 14),
         new(EnhanceModeKind.DigitalArt, "anime-x4",    false, 60, false, 30, 12, 50, 40, 14),
-        new(EnhanceModeKind.OldPhoto,   "photo-x4",    true,  82, true,  40, 35, 55, 45, 10)
+        new(EnhanceModeKind.OldPhoto,   "photo-x4",    true, 100, true,  40, 35, 55, 45, 10)
     ];
 
     public static ModePresetSpec Get(EnhanceModeKind kind) =>
@@ -201,7 +203,8 @@ public sealed class UserPreferences
     public int TargetPresetLongSide { get; set; } = 0;
     public int CustomLongSide { get; set; } = 4096;
     public bool EnhanceFaces { get; set; } = true;
-    public int FaceStrength { get; set; } = 30;
+    // New installs use the adaptive maximum; ordinary high-detail skin is still feature-masked.
+    public int FaceStrength { get; set; } = 100;
     public bool LightAi { get; set; } = false;
     public int LightAiStrength { get; set; } = 30;
     public int DenoiseStrength { get; set; } = 0;

@@ -214,7 +214,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = "Continue"
-          $Tag = if ($env:GITHUB_REF -eq "refs/heads/main") { "v3.2.0" } else { "v3.2.1-skin-retouch" }
+          $Tag = if ($env:GITHUB_REF -eq "refs/heads/main") { "v3.2.0" } else { "v3.2.2-strong-faces" }
           $SetupExe = "windows\dist\Enhancer-v3.2-Windows-x64-Setup.exe"
           $PortableZip = "windows\dist\Enhancer-v3.2-Windows-x64-Portable.zip"
 

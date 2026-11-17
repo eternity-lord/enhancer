@@ -150,6 +150,78 @@ inline void sample_rgb_bicubic_reflect(
     }
 }
 
+inline float source_luma_at(
+    const uint8_t* pixels,
+    int width,
+    int height,
+    size_t stride_bytes,
+    bool pixels_are_rgba,
+    int x,
+    int y
+) {
+    if (!pixels || width <= 0 || height <= 0) {
+        return 0.0f;
+    }
+    const int sx = std::clamp(x, 0, width - 1);
+    const int sy = std::clamp(y, 0, height - 1);
+    const size_t channels = pixels_are_rgba ? 4u : 3u;
+    const uint8_t* px = pixels + static_cast<size_t>(sy) * stride_bytes +
+        static_cast<size_t>(sx) * channels;
+    return 0.299f * static_cast<float>(px[0]) +
+           0.587f * static_cast<float>(px[1]) +
+           0.114f * static_cast<float>(px[2]);
+}
+
+// A small pre-SR quality probe. It is deliberately coarse: it is used only to decide whether
+// a strong face pass may use a broad mask. It never changes the pixels by itself.
+float estimate_source_face_detail(
+    const uint8_t* pixels,
+    int width,
+    int height,
+    size_t stride_bytes,
+    bool pixels_are_rgba,
+    float x0,
+    float y0,
+    float x1,
+    float y1
+) {
+    if (!pixels || width < 2 || height < 2 || x1 <= x0 || y1 <= y0) {
+        return 0.0f;
+    }
+    const int ix0 = std::clamp(static_cast<int>(std::floor(x0)), 0, width - 1);
+    const int iy0 = std::clamp(static_cast<int>(std::floor(y0)), 0, height - 1);
+    const int ix1 = std::clamp(static_cast<int>(std::ceil(x1)), ix0 + 1, width);
+    const int iy1 = std::clamp(static_cast<int>(std::ceil(y1)), iy0 + 1, height);
+    const int face_w = std::max(1, ix1 - ix0);
+    const int face_h = std::max(1, iy1 - iy0);
+    const int step = std::max(1, static_cast<int>(std::ceil(
+        static_cast<float>(std::max(face_w, face_h)) / 48.0f
+    )));
+
+    double gradient_sum = 0.0;
+    int samples = 0;
+    for (int y = iy0; y < iy1; y += step) {
+        for (int x = ix0; x < ix1; x += step) {
+            const float center = source_luma_at(
+                pixels, width, height, stride_bytes, pixels_are_rgba, x, y
+            );
+            const float right = source_luma_at(
+                pixels, width, height, stride_bytes, pixels_are_rgba,
+                std::min(ix1 - 1, x + step), y
+            );
+            const float down = source_luma_at(
+                pixels, width, height, stride_bytes, pixels_are_rgba,
+                x, std::min(iy1 - 1, y + step)
+            );
+            gradient_sum += (std::fabs(right - center) + std::fabs(down - center)) * 0.5;
+            ++samples;
+        }
+    }
+    return samples > 0
+        ? std::clamp(static_cast<float>(gradient_sum / (static_cast<double>(samples) * 255.0)), 0.0f, 1.0f)
+        : 0.0f;
+}
+
 bool read_asset_or_file_text(
     AAssetManager* mgr,
     const std::string& asset_rel_path,
@@ -858,6 +930,18 @@ std::vector<NormalizedFace> detect_faces_scrfd(
         nf.x1 = x1 * inv_w;
         nf.y1 = y1 * inv_h;
         nf.prob = p.prob;
+        nf.source_face_width_px = bw;
+        nf.source_detail_score = estimate_source_face_detail(
+            pixels,
+            width,
+            height,
+            stride_bytes,
+            pixels_are_rgba,
+            x0,
+            y0,
+            x1,
+            y1
+        );
         for (int m = 0; m < 5; ++m) {
             nf.lm_x[m] = lm_px[m].x * inv_w;
             nf.lm_y[m] = lm_px[m].y * inv_h;
@@ -899,12 +983,40 @@ int restore_faces_codeformer(
     }
 
     const float strength = std::clamp(face_strength, 0.0f, 1.0f);
-    // Identity-safe face restoration: keep CodeFormer's fidelity weight high and apply only a
-    // restrained residual over the SR result. This recovers lashes/eyes/skin texture without
-    // allowing the generative pass to redraw facial geometry or change the person's identity.
+    // High-strength but identity-safe face restoration: keep CodeFormer's fidelity bounded and
+    // apply an adaptive residual over the SR result. Normal portraits receive a strong eye,
+    // brow, nose and mouth pass; only tiny/soft source faces earn broad generative recovery.
     const float cf_fidelity_w = std::clamp(0.98f - 0.30f * strength, 0.68f, 0.98f);
     const float blend_gain = std::clamp(0.10f + 0.55f * strength, 0.12f, 0.65f);
     const float max_channel_delta = 4.0f + 16.0f * strength;
+
+    // Strong face reconstruction is feature-forward on ordinary portraits and becomes broad
+    // only when the pre-SR probe says that the face is genuinely tiny or soft. This is the
+    // important guard against using a generative model to repaint normal pores.
+    const auto face_degradation = [](const NormalizedFace& nf) {
+        const float size_need = nf.source_face_width_px > 0.0f
+            ? std::clamp((128.0f - nf.source_face_width_px) / 80.0f, 0.0f, 1.0f)
+            : 0.0f;
+        const float softness_need = nf.source_detail_score > 0.0f
+            ? std::clamp((0.018f - nf.source_detail_score) / 0.018f, 0.0f, 1.0f)
+            : 0.0f;
+        return std::max(size_need, softness_need);
+    };
+    // Rational Gaussian-like falloff avoids six expensive exp() calls for every output pixel.
+    const auto gaussian = [](float x, float y, float cx, float cy, float sx, float sy) {
+        const float dx = (x - cx) / sx;
+        const float dy = (y - cy) / sy;
+        return 1.0f / (1.0f + 0.5f * (dx * dx + dy * dy));
+    };
+    const auto canonical_feature_weight = [&](float u, float v) {
+        const float eye_l = gaussian(u, v, 193.0f, 240.0f, 42.0f, 24.0f);
+        const float eye_r = gaussian(u, v, 319.0f, 240.0f, 42.0f, 24.0f);
+        const float brow_l = gaussian(u, v, 194.0f, 216.0f, 46.0f, 15.0f);
+        const float brow_r = gaussian(u, v, 318.0f, 216.0f, 46.0f, 15.0f);
+        const float nose = 0.82f * gaussian(u, v, 256.0f, 314.0f, 30.0f, 43.0f);
+        const float mouth = gaussian(u, v, 257.0f, 371.0f, 64.0f, 28.0f);
+        return std::clamp(std::max({eye_l, eye_r, brow_l, brow_r, nose, mouth}), 0.0f, 1.0f);
+    };
 
     std::string raw_gen_param;
     if (!read_asset_or_file_text(
@@ -1013,6 +1125,8 @@ int restore_faces_codeformer(
         // Color-match & feather-paste each restored face back onto final_rgb
         for (size_t bi = 0; bi < batch_n; ++bi) {
             if (cancelled.load()) break;
+            const NormalizedFace& nf = faces[start + bi];
+            const float degradation = face_degradation(nf);
             harmonize_face_oklab(aligned_patches[bi].data(), restored_patches[bi].data());
 
             const Affine2D& M = m_out_to_512[bi];
@@ -1056,8 +1170,15 @@ int restore_faces_codeformer(
                     const float d_box = std::min({u - 16.0f, 495.0f - u, v - 16.0f, 495.0f - v});
                     const float w_box = std::clamp(d_box * (1.0f / 48.0f), 0.0f, 1.0f);
 
+                    const float feature_weight = canonical_feature_weight(u, v);
+                    // Normal faces get a narrow eye/brow/nose/mouth pass. A genuinely degraded
+                    // face progressively earns a wider CodeFormer contribution, up to the full
+                    // anatomical ellipse at the strongest setting.
+                    const float feature_scope = 0.035f + 0.965f * feature_weight;
+                    const float degraded_scope = 0.45f + 0.55f * feature_weight;
+                    const float scope = feature_scope + degradation * (degraded_scope - feature_scope);
                     float alpha = std::min(w_ell, w_box);
-                    alpha = alpha * alpha * (3.0f - 2.0f * alpha) * blend_gain;
+                    alpha = alpha * alpha * (3.0f - 2.0f * alpha) * blend_gain * scope;
                     if (alpha <= 1e-4f) {
                         continue;
                     }

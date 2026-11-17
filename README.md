@@ -20,8 +20,8 @@
 - **Dedicated Skin Retouch workspace**: Simple local manual retouch is deliberately separate from Lab. Paint an orange mask over selected skin, adjust strength and texture preservation, verify changed-pixel metrics in Before/After, and save a collision-safe JPEG/PNG copy while the original remains untouched. This is not full-face AI reconstruction.
 - **7 Studio Enhancement Modes (100% Unlocked Inspector)**:
   - `Prime`, `Gentle`, `Balanced`, `Strong`, `Ultra` (with **Ultra Detail Intensity** & **Size of Changes** multi-scale synthesis), `Digital Art`, and `Old Photo` — every slider and toggle stays unlocked so you can customize any preset freely.
-- **Portrait Face Restoration (`SCRFD-2.5G-KPS` + `CodeFormer 512×512`)**:
-  - Automatic 5-point landmark detection, Umeyama similarity alignment, sequential memory-safe `CodeFormer` neural restoration, Oklab skin-tone preservation, and seamless elliptical cosine feathering.
+- **Maximum Portrait Face Restoration (`SCRFD-2.5G-KPS` + `CodeFormer 512×512`)**:
+  - Face strength defaults to 100% across face-enabled modes and all SR backbones. Normal portraits use a feature-focused eye/brow/nose/mouth pass; genuinely tiny or soft faces automatically receive stronger anatomical recovery, with Oklab skin-tone preservation and seamless elliptical feathering.
 - **Light AI (Smart HDR) & Pre-SR Artifact Cleanup**:
   - Edge-preserving Guided Filter shadow/highlight recovery and adaptive chroma vibrance, plus pre-inference JPEG 8×8 deblocking & chroma denoise.
 - **8 Bundled Offline Neural SR Models & Up to 16K Output**:
@@ -79,8 +79,8 @@
 - **فضای مستقل روتوش پوست**: روتوش دستی ساده و موضعی عمداً از LAB جدا شده است. روی ناحیه انتخابی ماسک نارنجی بکشید، شدت و حفظ بافت را تنظیم کنید، نتیجه و تعداد پیکسل‌های تغییرکرده را در Before/After ببینید و یک کپی JPEG/PNG بدون تغییر فایل اصلی ذخیره کنید. این بخش بازسازی کامل چهره با هوش مصنوعی نیست.
 - **۷ حالت هوش مصنوعی استودیویی بدون هیچ محدودیت قفل‌شده**:
   - شامل حالت‌های `Prime`، `Gentle`، `Balanced`، `Strong`، `Ultra` (مجهز به اسلایدرهای **شدت جزئیات** و **اندازه تغییرات**)، `Digital Art` و `Old Photo`.
-- **بازسازی تخصصی چهره (`SCRFD + CodeFormer 512×512`) و نورپردازی هوشمند (`Light AI`)**:
-  - تشخیص دقیق اجزای چهره، بازسازی تارترین چهره‌ها با حفظ رنگ طبیعی پوست در فضای رنگی Oklab، و بازیابی هوشمند سایه‌ها و هایلایت‌ها (Smart HDR).
+- **بازسازی فوق‌قوی چهره (`SCRFD + CodeFormer 512×512`) و نورپردازی هوشمند (`Light AI`)**:
+  - شدت چهره در حالت‌های دارای بازسازی روی ۱۰۰٪ قرار دارد؛ عکس‌های معمولی با تمرکز روی چشم، ابرو، بینی و لب پردازش می‌شوند و چهره‌های واقعاً کوچک یا تار به‌صورت تطبیقی بازسازی گسترده‌تری می‌گیرند، با حفظ رنگ طبیعی پوست در فضای Oklab.
 - **۸ مدل شبکه عصبی آفلاین و خروجی تا رزولوشن 16K با استاندارد چاپ 300 DPI**:
   - خروجی با کیفیت‌های `Native`، `2K`، `4K`، `8K` و **`16K (15360 px)`** در فرمت‌های **JPEG 4:4:4** بدون افت رنگ و **PNG** بدون افت کیفیت، همراه با متادیتای واقعی **300 DPI** مخصوص چاپ حرفه‌ای.
 - **رابط کاربری مدرن دو زبانه (فارسی راست‌به‌چپ و انگلیسی)**:
