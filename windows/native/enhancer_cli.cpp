@@ -25,8 +25,7 @@ struct ModelSpec {
 };
 
 constexpr ModelSpec kModels[] = {
-    {"photo-x4",       "models/lsdir-photo-x4.param",            "models/lsdir-photo-x4.bin",            4},
-    {"real-esrgan-x4", "models/realesrgan-x4plus.param",         "models/realesrgan-x4plus.bin",         4},
+    {"photo-x4",       "models/realesrgan-x4plus.param",         "models/realesrgan-x4plus.bin",         4},
     {"general-v3",     "models/realesr-general-x4v3.param",      "models/realesr-general-x4v3.bin",      4},
     {"general-wdn",    "models/realesr-general-wdn-x4v3.param",  "models/realesr-general-wdn-x4v3.bin",  4},
     {"lsdir-x4",       "models/lsdir-compact-x4.param",          "models/lsdir-compact-x4.bin",          4},
@@ -80,9 +79,8 @@ std::string detect_default_models_dir(const std::string& exe_path_utf8) {
 #else
         s = c.string();
 #endif
-        const std::string quality_probe = enhancer::resolve_model_file_path(s, "models/lsdir-photo-x4.param");
-        const std::string fallback_probe = enhancer::resolve_model_file_path(s, "models/realesrgan-x4plus.param");
-        if (enhancer::utf8_file_exists(quality_probe) || enhancer::utf8_file_exists(fallback_probe)) {
+        const std::string probe = enhancer::resolve_model_file_path(s, "models/realesrgan-x4plus.param");
+        if (enhancer::utf8_file_exists(probe)) {
             return s;
         }
     }
@@ -108,7 +106,7 @@ void print_usage() {
         "  enhancer-cli -i <input.jpg> -o <output.jpg> [options]\n\n"
         "Options:\n"
         "  --mode <prime|gentle|balanced|strong|ultra|digital-art|old-photo>  (default: ultra)\n"
-        "  --model <photo-x4|real-esrgan-x4|general-v3|general-wdn|lsdir-x4|anime-x4|compact-x2|compact-x3|compact-x4>\n"
+        "  --model <photo-x4|general-v3|general-wdn|lsdir-x4|anime-x4|compact-x2|compact-x3|compact-x4>\n"
         "  --target <native|2k|4k|8k|16k>                                     (default: native x4)\n"
         "  --faces <0|1>               Identity-safe SCRFD + CodeFormer detail (default: mode preset)\n"
         "  --face-strength <0..100>    Conservative face detail strength        (default: 30)\n"

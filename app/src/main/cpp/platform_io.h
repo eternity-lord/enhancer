@@ -134,7 +134,7 @@ inline uint64_t query_utf8_file_size(const std::string& utf8_path) noexcept {
 #endif
 }
 
-// Resolves a relative model path such as "models/lsdir-photo-x4.param" against `base_dir`.
+// Resolves a relative model path such as "models/realesrgan-x4plus.param" against `base_dir`.
 // Supports both `base_dir/models/foo.param` and `base_dir/foo.param` (when `base_dir` itself is `models`).
 inline std::string resolve_model_file_path(
     const std::string& base_dir,

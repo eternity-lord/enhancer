@@ -2658,8 +2658,8 @@ Fp16CalibrationReport calibrate_vulkan_fp16_policy(
                              std::vector<float>& pr, std::vector<float>& pg, std::vector<float>& pb) -> bool {
             UpscaleConfig cfg;
             cfg.models_base_dir = models_base_dir;
-            cfg.param_asset_path = "models/lsdir-photo-x4.param";
-            cfg.bin_asset_path = "models/lsdir-photo-x4.bin";
+            cfg.param_asset_path = "models/realesrgan-x4plus.param";
+            cfg.bin_asset_path = "models/realesrgan-x4plus.bin";
             cfg.model_scale = 4;
             cfg.disable_fp16 = disable_fp16;
             cfg.force_cpu = !use_vk;
@@ -2891,8 +2891,8 @@ SelfTestReport run_native_self_test(
         BackendSelfTestOutcome out;
         UpscaleConfig cfg;
         cfg.models_base_dir = models_base_dir;
-        cfg.param_asset_path = "models/lsdir-photo-x4.param";
-        cfg.bin_asset_path = "models/lsdir-photo-x4.bin";
+        cfg.param_asset_path = "models/realesrgan-x4plus.param";
+        cfg.bin_asset_path = "models/realesrgan-x4plus.bin";
         cfg.model_scale = 4;
         cfg.target_long_side = 0; // Native 4x -> 1024x1024
         cfg.requested_tile_size = 64;
@@ -2959,7 +2959,7 @@ SelfTestReport run_native_self_test(
     report.cpu = run_single_backend(false);
 
     report.full_log =
-        "=== Enhancer Native Self-Test (256x256, lsdir-photo-x4, tile=64, maxQ=off, TTA=off) ===\n" +
+        "=== Enhancer Native Self-Test (256x256, realesrgan-x4plus, tile=64, maxQ=off, TTA=off) ===\n" +
         query_vulkan_diagnostics_summary() + "\n" +
         "[Vulkan] " + report.vulkan.detail + "\n" +
         "[CPU]    " + report.cpu.detail;
@@ -3113,8 +3113,8 @@ SeamTestReport run_native_seam_test(
 
             UpscaleConfig cfg;
             cfg.models_base_dir = models_base_dir;
-            cfg.param_asset_path = "models/lsdir-photo-x4.param";
-            cfg.bin_asset_path = "models/lsdir-photo-x4.bin";
+            cfg.param_asset_path = "models/realesrgan-x4plus.param";
+            cfg.bin_asset_path = "models/realesrgan-x4plus.bin";
             cfg.model_scale = kScale;
             cfg.disable_fp16 = !fp16_on;
             cfg.force_cpu = !bspec.use_vulkan;
@@ -3431,7 +3431,7 @@ SeamTestReport run_native_seam_test(
         " | Matrix: " + std::to_string(pass_count) + "/" + std::to_string(avail_count) + " available configs PASS";
 
     std::string table =
-        "=== Enhancer Seam Test (700x500 -> 2800x2000, lsdir-photo-x4) ===\n" +
+        "=== Enhancer Seam Test (700x500 -> 2800x2000, realesrgan-x4plus) ===\n" +
         query_vulkan_diagnostics_summary() + "\n" +
         cross_backend_line +
         report.summary + "\n\n" +

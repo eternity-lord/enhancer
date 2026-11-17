@@ -56,10 +56,9 @@ public sealed record SrModelOption(
 {
     public static readonly IReadOnlyList<SrModelOption> All =
     [
-        new("general-v3",     "General v3 x4 — Everyday Photos & Portraits",       "عمومی v3 (4x) — عکس‌های روزمره و پرتره",        "models/realesr-general-x4v3.param",     "models/realesr-general-x4v3.bin",     4),
-        new("photo-x4",       "LSDIR Photo x4 — Quality-First Natural Detail",       "LSDIR فوتو (4x) — جزئیات طبیعی با اولویت کیفیت", "models/lsdir-photo-x4.param",            "models/lsdir-photo-x4.bin",            4),
-        new("real-esrgan-x4", "Real-ESRGAN Photo x4+ — Conservative Fallback",       "Real-ESRGAN فوتو (4x) — پشتیبان محافظه‌کار",   "models/realesrgan-x4plus.param",        "models/realesrgan-x4plus.bin",        4),
-        new("general-wdn",    "General WDN x4 — Heavy Denoise & Low-Light Rescue",     "حذف نویز قوی WDN (4x) — نور کم و فشرده",       "models/realesr-general-wdn-x4v3.param", "models/realesr-general-wdn-x4v3.bin", 4),
+        new("general-v3",  "General v3 x4 — Everyday Photos & Portraits", "عمومی v3 (4x) — عکس‌های روزمره و پرتره",        "models/realesr-general-x4v3.param",     "models/realesr-general-x4v3.bin",     4),
+        new("photo-x4",    "Real-ESRGAN Photo x4+ — Maximum Natural Texture",       "فوتورئال x4+ — بیشترین جزئیات طبیعی",           "models/realesrgan-x4plus.param",        "models/realesrgan-x4plus.bin",        4),
+        new("general-wdn", "General WDN x4 — Heavy Denoise & Low-Light Rescue",     "حذف نویز قوی WDN (4x) — نور کم و فشرده",        "models/realesr-general-wdn-x4v3.param", "models/realesr-general-wdn-x4v3.bin", 4),
         new("lsdir-x4",    "LSDIR Compact x4 — Clean Crisp Edges & Text",           "فشرده LSDIR (4x) — لبه‌های شارپ و متن",         "models/lsdir-compact-x4.param",         "models/lsdir-compact-x4.bin",         4),
         new("anime-x4",    "Digital Art & Anime x4+ — Illustration & CGI",          "هنر دیجیتال و انیمه x4+ — طراحی و گرافیک",      "models/realesrgan-x4plus-anime.param",  "models/realesrgan-x4plus-anime.bin",  4),
         new("compact-x2",  "Fast Compact x2 — Rapid 2× Upscale (CPU Friendly)",     "فشرده سریع 2x — مناسب پردازنده (CPU)",          "models/realesr-animevideov3-x2.param",  "models/realesr-animevideov3-x2.bin",  2),

@@ -38,7 +38,7 @@ Fp16CalibrationReport calibrate_vulkan_fp16_policy(
     const std::string& models_base_dir = ""
 );
 
-// Runs a synthetic 256x256 RGBA image through `models/lsdir-photo-x4.{param,bin}`
+// Runs a synthetic 256x256 RGBA image through `models/realesrgan-x4plus.{param,bin}`
 // once strictly on Vulkan and once strictly on CPU (`tile = 64`, no Max quality, no TTA),
 // recording PASS/FAIL, exact millisecond timings, and full native diagnostic text for each.
 SelfTestReport run_native_self_test(

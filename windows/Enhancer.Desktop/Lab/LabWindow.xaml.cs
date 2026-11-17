@@ -125,8 +125,8 @@ public partial class LabWindow : Window
             var decoded = NativeEngine.DecodeImageWithExif(_sourceImagePath!);
             var request = new UpscaleJobRequest(
                 ModelsDirectory: NativeEngine.LocateModelsDirectory(),
-                ParamRelativePath: "models/lsdir-photo-x4.param",
-                BinRelativePath: "models/lsdir-photo-x4.bin",
+                ParamRelativePath: "models/realesrgan-x4plus.param",
+                BinRelativePath: "models/realesrgan-x4plus.bin",
                 OutputFilePath: outputPath,
                 ModelScale: 4,
                 TargetLongSide: 0,

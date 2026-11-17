@@ -588,8 +588,7 @@ fun AboutScreen(
                         stringResource(R.string.about_whats_new_1),
                         stringResource(R.string.about_whats_new_2),
                         stringResource(R.string.about_whats_new_3),
-                        stringResource(R.string.about_whats_new_4),
-                        stringResource(R.string.about_whats_new_5)
+                        stringResource(R.string.about_whats_new_4)
                     )
                     items.forEachIndexed { idx, line ->
                         Row(
@@ -649,7 +648,6 @@ fun AboutScreen(
 
                     val ossEntries = listOf(
                         stringResource(R.string.oss_realesrgan),
-                        stringResource(R.string.oss_lsdir),
                         stringResource(R.string.oss_codeformer),
                         stringResource(R.string.oss_ncnn),
                         stringResource(R.string.oss_stb)

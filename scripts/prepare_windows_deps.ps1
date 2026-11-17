@@ -89,7 +89,7 @@ if ((-not (Test-FileSha256 $CachedEnc $EncSha256)) -or (-not (Test-FileSha256 $C
     }
 }
 
-# 3. Stage all 22 neural model files (9 SR models + SCRFD + CodeFormer) into windows\deps\models
+# 3. Stage all 20 neural model files (8 SR models + SCRFD + CodeFormer) into windows\deps\models
 $RepoAssetsModels = Join-Path $RepoRoot "app\src\main\assets\models"
 Get-ChildItem -Path $RepoAssetsModels -File | ForEach-Object {
     Copy-Item -Force $_.FullName (Join-Path $StagedModelsDir $_.Name)

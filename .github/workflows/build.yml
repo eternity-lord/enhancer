@@ -111,8 +111,6 @@ jobs:
             "assets/models/codeformer_generator.bin" \
             "assets/models/scrfd_2.5g_kps.bin" \
             "assets/models/realesrgan-x4plus.bin" \
-            "assets/models/lsdir-photo-x4.param" \
-            "assets/models/lsdir-photo-x4.bin" \
             "assets/models/realesr-general-x4v3.bin" \
             "assets/models/realesr-general-wdn-x4v3.bin" \
             "assets/models/lsdir-compact-x4.bin"; do
